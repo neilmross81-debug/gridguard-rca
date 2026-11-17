@@ -266,7 +266,7 @@ function viewDashboard() {
   const highRpn = DB.fmea_items.filter(f => rpnOf(f) >= 100);
   const critical = DB.investigations.filter(i => i.severity === 'critical' || i.severity === 'catastrophic');
 
-  const stat = (tone, ic, label, value, foot) => `
+  const stat = (tone, ic, value, label, foot) => `
     <div class="stat tone-${tone}">
       <div class="stat-top"><span class="stat-icon">${icon(ic)}</span><span class="stat-label">${label}</span></div>
       <div class="stat-value">${value}</div>
