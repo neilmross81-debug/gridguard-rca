@@ -5,6 +5,11 @@
    ========================================================================== */
 
 :root {
+  /* Without this the OS (dark mode on Windows) drives every native control
+     surface: the <select> option list, the date picker, and scrollbars all
+     render dark even though the input itself is white. */
+  color-scheme: light;
+
   /* surfaces */
   --bg:            #F3F2F1;   /* canvas */
   --bg-alt:        #FAF9F8;   /* subtle fill, table headers */
@@ -353,6 +358,12 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
   padding-bottom: 7px;
 }
 .input::placeholder, .textarea::placeholder { color: var(--ink-4); }
+/* Explicit light styling for the option list — some engines ignore
+   color-scheme on the popup and fall back to this rule. */
+.select option, .select optgroup { background-color: #FFFFFF; color: var(--ink); }
+.select optgroup { font-weight: 600; }
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .75; }
+input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .select {
   appearance: none;
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath fill='%23616161' d='M6 8.4 1.8 4.2l.9-.9L6 6.6l3.3-3.3.9.9z'/%3E%3C/svg%3E");
