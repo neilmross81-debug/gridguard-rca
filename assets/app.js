@@ -283,7 +283,7 @@ function viewDashboard() {
     .map(c => {
       const inv = invById(c.investigation_id);
       const overdue = c.target_date && new Date(c.target_date) < new Date() && c.status !== 'verified';
-      return `<div class="rca-row" style="grid-template-columns:1fr auto;cursor:default" data-goto="#/investigations/${c.investigation_id}/capa">
+      return `<div class="rca-row" style="grid-template-columns:1fr auto;cursor:pointer" data-goto="#/investigations/${c.investigation_id}/capa">
         <div>
           <div class="rca-title" style="font-size:14px">${esc(c.description).slice(0, 118)}${c.description.length > 118 ? '…' : ''}</div>
           <div class="rca-meta"><span>${esc(c.owner || 'Unassigned')}</span><span>${esc(inv ? inv.document_code : '')}</span><span>Due ${fmtDate(c.target_date)}</span></div>
@@ -385,13 +385,156 @@ function viewInvestigations() {
   <div class="card"><div class="rca-list">${rows}</div></div>`;
 }
 
-/* ---------- view: single RCA ---------- */
+/* ---------- guided RCA coaching knowledge base ---------- */
+
+const WHY_LEVEL_GUIDE = {
+  1: { stage: 'Immediate Trigger', prompt: 'What directly tripped, failed, or breached operating limits?' },
+  2: { stage: 'Mechanism', prompt: 'Which component, protection function, or control loop failed to hold?' },
+  3: { stage: 'Direct Cause', prompt: 'Why did that component, material, or software lose integrity or margin?' },
+  4: { stage: 'Control / Process Gap', prompt: 'Why did PMs, testing, alarms, or monitoring not detect this earlier?' },
+  5: { stage: 'Systemic Root Cause', prompt: 'What standard, BOM spec, commissioning rule, or SOP allowed this gap?' },
+};
+
+const FAULT_PROMPTS = {
+  electrical: [
+    'Why did the protection relay or circuit breaker initiate a trip?',
+    'Why did insulation, SF6/oil dielectric, or contact integrity degrade?',
+    'Why did the auxiliary AC/DC supply fail to ride through the event?',
+  ],
+  mechanical: [
+    'Why did the seal, bearing, or structural fastener lose integrity?',
+    'Why was abnormal vibration, thermal rise, or wear not caught on PM?',
+    'Why did the material specification fail under site operating loads?',
+  ],
+  control: [
+    'Why did SCADA/RTU telemetry or PLC logic drop or misoperate?',
+    'Why was the critical alarm masked, suppressed, or unsegregated?',
+    'Why did FAT/SAT commissioning not verify this failure mode?',
+  ],
+  instrument: [
+    'Why did the sensor or transducer drift or report an invalid value?',
+    'Why did calibration or loop-check intervals miss this degradation?',
+    'Why was there no redundant voting or plausibility check in SCADA?',
+  ],
+  human: [
+    'Why did the switching sequence, LOTO, or handover step deviate?',
+    'Why did the procedure or HMI layout make the error likely?',
+    'Why did workload, alarm fatigue, or training gaps contribute?',
+  ],
+  environmental: [
+    'Why did salt-mist, humidity, or storm loading penetrate the enclosure?',
+    'Why was the IP/C5-M corrosion rating insufficient for site exposure?',
+    'Why did HVAC, dehumidification, or heating fail to maintain margin?',
+  ],
+};
+
+const ISHIKAWA_PROMPTS = {
+  man: [
+    'Were alarms acknowledged without field verification due to alarm fatigue?',
+    'Did shift handover, LOTO, or switching authorization miss a critical check?',
+    'Was specialized HV/SCADA training or OEM tooling available for the task?',
+  ],
+  machine: [
+    'Did switchgear, transformer, or protection relay hardware degrade prematurely?',
+    'Did auxiliary DC battery banks, chargers, or PSU hold-up fail under load?',
+    'Were mechanical seals, bushings, or actuators operating beyond rated cycles?',
+  ],
+  material: [
+    'Did spare parts BOM lack offshore C5-M marine or UV-stabilized specs?',
+    'Was SF6 gas, insulating oil, or elastomer seal contaminated or out-of-spec?',
+    'Were incompatible metals joined, causing galvanic or crevice corrosion?',
+  ],
+  method: [
+    'Did the preventive maintenance (PM) checklist omit seal, gland, or torque checks?',
+    'Did FAT/SAT commissioning procedures fail to test this fault scenario?',
+    'Was the switching SOP or emergency recovery procedure ambiguous?',
+  ],
+  measurement: [
+    'Was a critical health alarm grouped into a masked common SCADA DI?',
+    'Were CTs, VTs, or density sensors out of calibration or unmonitored?',
+    'Did COMTRADE, SOE, or PQ analyzers lack synchronized time-stamping?',
+  ],
+  milieu: [
+    'Did high-salinity marine mist or condensation penetrate an IP-rated box?',
+    'Did ambient temperature extremes, storm loading, or vibration accelerate wear?',
+    'Did enclosure heaters or ventilation fail to prevent moisture ingress?',
+  ],
+};
+
+let selectedIshVector = 'machine';
+
+function computeRcaJourney(i) {
+  const whys = byInv('five_whys_nodes', i.id);
+  const ish = byInv('ishikawa_causes', i.id);
+  const fmea = byInv('fmea_items', i.id);
+  const capas = byInv('capa_actions', i.id);
+
+  const hasScope = Boolean((i.executive_summary || '').trim() && (i.equipment_tag || '').trim());
+  const maxWhyLevel = whys.reduce((m, n) => Math.max(m, Number(n.level) || 1), 0);
+  const rootWhys = whys.filter(n => n.is_root_cause);
+  const hasWhys = maxWhyLevel >= 3 && rootWhys.length >= 1;
+  const distinctVectors = new Set(ish.map(c => c.vector)).size;
+  const hasIsh = distinctVectors >= 3;
+  const highRpnItems = fmea.filter(f => rpnOf(f) >= 100);
+  const hasFmea = fmea.length >= 1;
+  const hasCapa = capas.length >= 1 && (highRpnItems.length === 0 || capas.length >= Math.min(2, highRpnItems.length));
+  const hasConclusion = Boolean((i.root_cause_conclusion || '').trim()) && (i.status === 'inReview' || i.status === 'closed');
+
+  const steps = [
+    { key: 'overview',  num: 1, label: 'Scope & Asset',   done: hasScope },
+    { key: 'whys',      num: 2, label: '5 Whys',          done: hasWhys },
+    { key: 'ishikawa',  num: 3, label: 'Ishikawa 6M',     done: hasIsh },
+    { key: 'fmea',      num: 4, label: 'FMEA Risk',       done: hasFmea },
+    { key: 'capa',      num: 5, label: 'CAPA Plan',       done: hasCapa },
+    { key: 'report',    num: 6, label: 'Conclusion',      done: hasConclusion },
+  ];
+
+  let next = null;
+  if (!hasScope) {
+    next = { tab: 'overview', action: 'edit-rca', text: 'Document the equipment tag and executive summary (what happened and what was curtailed) to anchor the investigation.', cta: 'Complete scope' };
+  } else if (whys.length === 0) {
+    next = { tab: 'whys', action: 'add-why', text: 'Start your 5 Whys chain at Level 1: ask what directly triggered the trip or failure.', cta: 'Start 5 Whys' };
+  } else if (!hasWhys) {
+    next = { tab: 'whys', action: null, text: `You are at Why Level ${maxWhyLevel} with ${rootWhys.length} verified root cause(s). Drill down to Level 3–5 until you uncover the systemic or process gap.`, cta: 'Open 5 Whys' };
+  } else if (!hasIsh) {
+    next = { tab: 'ishikawa', action: null, text: `You have ${distinctVectors} of 6 Ishikawa vectors populated. Check at least 3 vectors (Man, Machine, Material, Method, Measurement, Milieu) so no contributing factor is missed.`, cta: 'Explore 6M vectors' };
+  } else if (!hasFmea) {
+    next = { tab: 'fmea', action: 'add-fmea', text: 'Score the failure modes in FMEA (Severity × Occurrence × Detection) to quantify risk priority.', cta: 'Score FMEA' };
+  } else if (!hasCapa) {
+    next = { tab: 'capa', action: 'add-capa', text: `${highRpnItems.length ? `${highRpnItems.length} high-RPN failure mode(s) ≥100 detected. ` : ''}Assign immediate Corrective and long-term Preventive actions with owners and due dates.`, cta: 'Assign CAPA' };
+  } else if (!hasConclusion) {
+    next = { tab: 'overview', action: 'edit-rca', text: 'Write the verified Root Cause Conclusion and move status to In Review or Closed to finalize the audit report.', cta: 'Finalize conclusion' };
+  }
+
+  return { steps, next, doneCount: steps.filter(s => s.done).length };
+}
 
 function viewRca(id, tab) {
   const i = invById(id);
   if (!i) return `<div class="empty"><strong>Investigation not found</strong>It may have been deleted. <button class="btn btn-sm" data-route="#/investigations">Back to register</button></div>`;
 
+  const journey = computeRcaJourney(i);
   const tabs = TAB_LABELS.map(([k, l]) => `<button class="tab ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('');
+
+  const stepHtml = journey.steps.map(s => {
+    const cls = s.done ? 'done' : (tab === s.key ? 'active' : '');
+    return `<button class="j-step ${cls}" data-tab="${s.key}">
+      <span class="j-num">${s.done ? '✓' : s.num}</span>
+      <span>${esc(s.label)}</span>
+    </button>`;
+  }).join('');
+
+  const coachHtml = journey.next
+    ? `<div class="coach-banner">
+        <div class="coach-text"><strong>Next step:</strong> ${esc(journey.next.text)}</div>
+        ${journey.next.action
+          ? `<button class="btn btn-primary btn-sm" data-action="${journey.next.action}" data-id="${i.id}">${esc(journey.next.cta)}</button>`
+          : `<button class="btn btn-primary btn-sm" data-tab="${journey.next.tab}">${esc(journey.next.cta)}</button>`}
+      </div>`
+    : `<div class="coach-banner complete">
+        <div class="coach-text"><strong>Investigation complete:</strong> All 6 RCA stages are verified and ready for audit export.</div>
+        <button class="btn btn-sm" data-tab="report">${icon('print')} Review report</button>
+      </div>`;
 
   return `
   <div class="breadcrumb">
@@ -412,6 +555,14 @@ function viewRca(id, tab) {
       <button class="btn" data-action="print">${icon('print')} Report</button>
       <button class="icon-btn" data-action="del-rca" data-id="${i.id}" title="Delete investigation" aria-label="Delete investigation">${icon('trash')}</button>
     </div>
+  </div>
+
+  <div class="journey no-print">
+    <div class="journey-head">
+      <div class="journey-title">Guided RCA progression <span class="chip chip-accent">${journey.doneCount} / 6 stages complete</span></div>
+    </div>
+    <div class="journey-steps">${stepHtml}</div>
+    ${coachHtml}
   </div>
 
   <div class="tabs" id="tabs">${tabs}</div>
@@ -473,22 +624,25 @@ function tabWhys(i) {
   const chainOne = (n, isBranch) => whyCard(n, isBranch) + nodes.filter(x => x.parent_id === n.id).map(g => chainOne(g, true)).join('');
 
   const body = roots.map(r => whyCard(r, false) + nodes.filter(n => n.parent_id === r.id).map(c => chainOne(c, true)).join('')).join('')
-    || `<div class="empty"><strong>No 5 Whys chain yet</strong>Start with the first "why" and drill down.</div>`;
+    || `<div class="empty"><strong>No 5 Whys chain yet</strong>Start with the first "why" and drill down until you uncover the systemic root cause.</div>`;
 
   return `
   <div class="section-head">
-    <div><h2 class="h3">5 Whys interrogative chain</h2><p>Each branch is interrogated until the root cause is verified</p></div>
-    <button class="btn btn-sm" data-action="add-why" data-id="${i.id}">${icon('plus')} Add why</button>
+    <div><h2 class="h3">5 Whys interrogative chain</h2><p>Drill down through immediate triggers (L1–L2) to process &amp; design gaps (L4–L5)</p></div>
+    <button class="btn btn-primary btn-sm" data-action="add-why" data-id="${i.id}">${icon('plus')} Add why</button>
   </div>
   ${body}`;
 }
 
 function whyCard(n, isBranch) {
   const levelLabel = `Why L${n.level}`;
+  const guide = WHY_LEVEL_GUIDE[Math.min(5, Math.max(1, Number(n.level) || 1))];
   const kids = DB.five_whys_nodes.filter(x => x.parent_id === n.id).length;
+  const nextGuide = WHY_LEVEL_GUIDE[Math.min(5, (Number(n.level) || 1) + 1)];
+
   return `<div class="why ${n.is_root_cause ? 'root' : ''} ${isBranch ? 'branch' : ''}">
     <div class="why-head">
-      <span class="why-level">${levelLabel}</span>
+      <span class="why-level">${levelLabel} · ${esc(guide.stage)}</span>
       ${n.is_root_cause ? chip('Verified root cause', 'green') : ''}
       ${isBranch ? chip('Contributing branch', 'amber') : ''}
       <div style="margin-left:auto" class="chip-row no-print">
@@ -500,31 +654,98 @@ function whyCard(n, isBranch) {
     <div class="why-q">${esc(n.question)}</div>
     ${n.answer ? `<div class="why-a">${esc(n.answer)}</div>` : ''}
     ${n.evidence ? `<div class="why-e"><strong class="dim">Evidence:</strong> ${esc(n.evidence)}</div>` : ''}
+    ${!n.is_root_cause && kids === 0 ? `<div class="why-nudge no-print">
+      <span><strong>Keep drilling (${esc(nextGuide.stage)}):</strong> ${esc(nextGuide.prompt)}</span>
+      <button class="btn btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}">${icon('plus')} Ask Why L${(n.level || 1) + 1}</button>
+    </div>` : ''}
+  </div>`;
+}
+
+function renderFishboneSvg(i, causes) {
+  const ribs = [
+    { key: 'man',         label: 'Man',         x1: 210, y1: 120, x2: 140, y2: 34,  top: true },
+    { key: 'machine',     label: 'Machine',     x1: 420, y1: 120, x2: 350, y2: 34,  top: true },
+    { key: 'material',    label: 'Material',    x1: 630, y1: 120, x2: 560, y2: 34,  top: true },
+    { key: 'method',      label: 'Method',      x1: 210, y1: 120, x2: 140, y2: 206, top: false },
+    { key: 'measurement', label: 'Measurement', x1: 420, y1: 120, x2: 350, y2: 206, top: false },
+    { key: 'milieu',      label: 'Milieu',      x1: 630, y1: 120, x2: 560, y2: 206, top: false },
+  ];
+
+  const ribEls = ribs.map(r => {
+    const items = causes.filter(c => c.vector === r.key);
+    const sel = selectedIshVector === r.key;
+    const stroke = sel ? 'var(--accent)' : (items.length ? 'var(--cyan)' : 'var(--line-strong)');
+    const pillFill = sel ? 'var(--accent)' : (items.length ? 'var(--accent-soft)' : 'var(--bg-alt)');
+    const pillText = sel ? '#FFFFFF' : 'var(--ink)';
+    const py = r.top ? 8 : 204;
+    const twigs = items.slice(0, 3).map((c, idx) => {
+      const t = 0.28 + idx * 0.24;
+      const bx = r.x1 + (r.x2 - r.x1) * t;
+      const by = r.y1 + (r.y2 - r.y1) * t;
+      return `<line x1="${bx}" y1="${by}" x2="${bx - 28}" y2="${by}" stroke="${c.is_primary ? 'var(--red)' : 'var(--cyan)'}" stroke-width="1.6"/>`;
+    }).join('');
+
+    return `<g class="fb-rib" data-ish-vector="${r.key}">
+      <line x1="${r.x1}" y1="${r.y1}" x2="${r.x2}" y2="${r.y2}" stroke="${stroke}" stroke-width="${sel ? 2.6 : 1.8}" stroke-linecap="round"/>
+      ${twigs}
+      <rect class="fb-pill" x="${r.x2 - 58}" y="${py}" width="116" height="28" rx="4" fill="${pillFill}" stroke="${sel ? 'var(--accent)' : 'var(--line-strong)'}"/>
+      <text x="${r.x2}" y="${py + 18}" text-anchor="middle" font-size="11.5" font-weight="600" fill="${pillText}">${esc(r.label)} (${items.length})</text>
+    </g>`;
+  }).join('');
+
+  return `<div class="fishbone-wrap no-print">
+    <svg class="fishbone-svg" viewBox="0 0 880 240" role="img" aria-label="Interactive Ishikawa 6M Fishbone Diagram">
+      <line x1="32" y1="120" x2="700" y2="120" stroke="var(--ink-3)" stroke-width="2.5" stroke-linecap="round"/>
+      <polygon points="708,120 696,114 696,126" fill="var(--ink-3)"/>
+      ${ribEls}
+      <rect x="712" y="82" width="154" height="76" rx="6" fill="var(--red-soft)" stroke="var(--red)" stroke-width="1.4"/>
+      <text x="789" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="var(--red)">FAILURE EVENT</text>
+      <text x="789" y="131" text-anchor="middle" font-size="11.5" font-weight="600" fill="var(--ink)">${esc((i.equipment_tag || i.title || 'Incident').slice(0, 20))}</text>
+    </svg>
   </div>`;
 }
 
 function tabIshikawa(i) {
   const causes = byInv('ishikawa_causes', i.id);
+  const activeVec = selectedIshVector || 'machine';
+  const prompts = ISHIKAWA_PROMPTS[activeVec] || [];
+
+  const drawer = `<div class="ish-drawer no-print">
+    <div class="ish-drawer-head">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--accent)">Diagnostic Questions · ${esc(VECTOR[activeVec])}</div>
+        <div style="font-size:12.5px;color:var(--ink-2)">Click any rib above or a question below to log a contributing factor.</div>
+      </div>
+      <button class="btn btn-primary btn-sm" data-action="add-ish" data-id="${i.id}" data-vector="${activeVec}">${icon('plus')} Add to ${esc(activeVec)}</button>
+    </div>
+    <div class="prompt-chips">
+      ${prompts.map(p => `<button class="prompt-chip" data-action="add-ish-prompt" data-id="${i.id}" data-vector="${activeVec}" data-prompt="${esc(p)}">+ ${esc(p)}</button>`).join('')}
+    </div>
+  </div>`;
+
   const groups = Object.keys(VECTOR).map(v => {
     const items = causes.filter(c => c.vector === v);
-    return `<div class="ish">
-      <h4>${esc(VECTOR[v])}</h4>
+    const sel = activeVec === v ? 'selected' : '';
+    return `<div class="ish ${sel}" data-ish-vector="${v}" style="cursor:pointer">
+      <h4>${esc(VECTOR[v])} (${items.length})</h4>
       <ul>${items.map(c => `<li>
-        <strong>${c.is_primary ? '<span style="color:var(--accent)">◆ </span>' : ''}${esc(c.cause)}</strong>
+        <strong>${c.is_primary ? '<span style="color:var(--red)">◆ </span>' : ''}${esc(c.cause)}</strong>
         ${esc(c.detail || '')}
         <div class="chip-row no-print" style="margin-top:7px">
           <button class="btn btn-ghost btn-sm" data-action="edit-ish" data-ish="${c.id}">${icon('edit')}</button>
           <button class="btn btn-ghost btn-sm" data-action="del-ish" data-ish="${c.id}">${icon('trash')}</button>
         </div>
-      </li>`).join('') || '<li class="dim">No causes recorded.</li>'}</ul>
+      </li>`).join('') || '<li class="dim">No causes recorded — click to inspect questions.</li>'}</ul>
     </div>`;
   }).join('');
 
   return `
   <div class="section-head">
-    <div><h2 class="h3">Ishikawa 6M breakdown</h2><p>◆ marks a primary contributor to the failure</p></div>
+    <div><h2 class="h3">Ishikawa 6M breakdown</h2><p>Click any rib on the diagram to explore diagnostic questions · ◆ marks a primary contributor</p></div>
     <button class="btn btn-sm" data-action="add-ish" data-id="${i.id}">${icon('plus')} Add cause</button>
   </div>
+  ${renderFishboneSvg(i, causes)}
+  ${drawer}
   <div class="ish-grid">${groups}</div>`;
 }
 
@@ -573,6 +794,9 @@ function tabFmea(i) {
 
 function tabCapa(i) {
   const items = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
+  const highRpn = byInv('fmea_items', i.id).filter(f => rpnOf(f) >= 100);
+  const rootWhys = byInv('five_whys_nodes', i.id).filter(n => n.is_root_cause);
+
   const rows = items.map(c => {
     const overdue = c.target_date && new Date(c.target_date) < new Date() && !['verified', 'closed'].includes(c.status);
     return `<tr>
@@ -591,11 +815,19 @@ function tabCapa(i) {
   const open = items.filter(c => ['open', 'inProgress'].includes(c.status)).length;
   const done = items.filter(c => ['verified', 'closed'].includes(c.status)).length;
 
+  const capaGuide = (highRpn.length > 0 || rootWhys.length > 0) && items.length < (highRpn.length + rootWhys.length)
+    ? `<div class="prompt-box no-print">
+        <div class="prompt-box-title">CAPA Alignment Check</div>
+        <div style="font-size:13px;color:var(--ink-2)">You have <strong>${rootWhys.length}</strong> verified root cause(s) and <strong>${highRpn.length}</strong> FMEA failure mode(s) with RPN ≥ 100. Ensure each has both an immediate <strong>Corrective</strong> containment and a long-term <strong>Preventive</strong> engineering control.</div>
+      </div>`
+    : '';
+
   return `
   <div class="section-head">
     <div><h2 class="h3">Corrective &amp; preventive action plan</h2><p>${open} open · ${done} closed out of ${items.length}</p></div>
     <button class="btn btn-sm" data-action="add-capa" data-id="${i.id}">${icon('plus')} Add action</button>
   </div>
+  ${capaGuide}
   <div class="card table-scroll">
     <table class="table table-wide">
       <thead><tr><th>Type</th><th>Action &amp; verification</th><th>Owner</th><th>Due</th><th>Status</th><th class="no-print"></th></tr></thead>
@@ -825,41 +1057,81 @@ function rcaForm(i) {
 }
 
 function whyForm(invId, node, parentId, level) {
-  const d = node || { question: '', answer: '', evidence: '', level: level || 1, is_root_cause: 0 };
+  const lvl = Number(level || (node ? node.level : 1)) || 1;
+  const d = node || { question: '', answer: '', evidence: '', level: lvl, is_root_cause: lvl >= 5 ? 1 : 0 };
+  const guide = WHY_LEVEL_GUIDE[Math.min(5, Math.max(1, lvl))];
+  const inv = invById(invId);
+  const domainPrompts = FAULT_PROMPTS[(inv && inv.fault_category) || 'electrical'] || FAULT_PROMPTS.electrical;
+  const parentNode = parentId ? DB.five_whys_nodes.find(x => x.id === parentId) : null;
+
   return {
-    eyebrow: '5 Whys', title: node ? 'Edit why level' : 'Add why level',
+    eyebrow: `5 Whys · Level ${lvl} (${guide.stage})`, title: node ? 'Edit why level' : 'Add why level',
     body: `
+      ${parentNode ? `<div class="prompt-box" style="margin-bottom:12px">
+        <div class="prompt-box-title">Drilling down from L${parentNode.level} finding</div>
+        <div style="font-size:13px;color:var(--ink-2)">${esc(parentNode.answer || parentNode.question)}</div>
+      </div>` : ''}
+      <div class="prompt-box">
+        <div class="prompt-box-title">Coaching prompt · ${esc(guide.prompt)}</div>
+        <div class="prompt-chips">
+          ${domainPrompts.map(p => `<button type="button" class="prompt-chip" data-fill-question="${esc(p)}">${esc(p)}</button>`).join('')}
+        </div>
+      </div>
       <div class="form-grid">
         ${field('Why level', `<input class="input" type="number" min="1" max="9" name="level" value="${d.level}">`)}
         ${field('Root cause?', select('is_root_cause', [[0, 'No — keep drilling'], [1, 'Yes — verified root cause']], d.is_root_cause))}
       </div>
       ${field('Question', `<input class="input" name="question" value="${esc(d.question)}" placeholder="Why did…" required>`)}
-      ${field('Finding', `<textarea class="textarea" name="answer">${esc(d.answer)}</textarea>`)}
-      ${field('Evidence', `<input class="input" name="evidence" value="${esc(d.evidence)}" placeholder="COMTRADE record, SOE log, photo ID…">`)}`,
+      ${field('Finding', `<textarea class="textarea" name="answer" placeholder="State the verified physical, control, or process finding…">${esc(d.answer)}</textarea>`)}
+      ${field('Evidence (required to verify root cause)', `<input class="input" name="evidence" value="${esc(d.evidence)}" placeholder="COMTRADE record, SOE log, borescope photo ID, SAP BOM…">`)}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn btn-primary" data-action="save-why" data-id="${invId}" data-why="${node ? node.id : ''}" data-parent="${parentId || ''}">${icon('check')} Save</button>`,
   };
 }
 
-function ishForm(invId, cause) {
-  const d = cause || { vector: 'machine', cause: '', detail: '', is_primary: 0 };
+function ishForm(invId, cause, presetVector, presetPrompt) {
+  const d = cause || { vector: presetVector || selectedIshVector || 'machine', cause: '', detail: presetPrompt ? `Diagnostic check: ${presetPrompt}` : '', is_primary: 0 };
+  const prompts = ISHIKAWA_PROMPTS[d.vector] || [];
   return {
     eyebrow: 'Ishikawa 6M', title: cause ? 'Edit cause' : 'Add cause',
     body: `
+      ${prompts.length ? `<div class="prompt-box">
+        <div class="prompt-box-title">Questions to ask for ${esc(VECTOR[d.vector])}</div>
+        <div class="prompt-chips">
+          ${prompts.map(p => `<button type="button" class="prompt-chip" data-fill-detail="${esc(p)}">${esc(p)}</button>`).join('')}
+        </div>
+      </div>` : ''}
       <div class="form-grid">
         ${field('6M vector', select('vector', Object.entries(VECTOR), d.vector))}
         ${field('Primary contributor?', select('is_primary', [[0, 'Contributing'], [1, 'Primary']], d.is_primary))}
       </div>
-      ${field('Cause', `<input class="input" name="cause" value="${esc(d.cause)}" required>`)}
-      ${field('Technical detail', `<textarea class="textarea" name="detail">${esc(d.detail)}</textarea>`)}`,
+      ${field('Cause', `<input class="input" name="cause" value="${esc(d.cause)}" placeholder="Short cause headline…" required>`)}
+      ${field('Technical detail', `<textarea class="textarea" name="detail" placeholder="Specific component, condition, or observation…">${esc(d.detail)}</textarea>`)}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn btn-primary" data-action="save-ish" data-id="${invId}" data-ish="${cause ? cause.id : ''}">${icon('check')} Save</button>`,
   };
 }
 
+function fmeaLiveHtml(s, o, d) {
+  const rpn = Number(s) * Number(o) * Number(d);
+  const [band, tone] = riskBand(rpn);
+  const advice = rpn >= 100
+    ? 'RPN ≥ 100: A tracked CAPA action is required.'
+    : 'Below 100 threshold — monitor under standard PM controls.';
+  return `
+    <div>
+      <div style="font-size:12px;font-weight:600;color:var(--ink-3)">Live Risk Priority Number (S × O × D)</div>
+      <div class="fmea-rubric">${advice}</div>
+    </div>
+    <div class="chip-row">
+      <span class="fmea-live-score" style="color:var(--${tone})">${rpn}</span>
+      ${chip(band, tone)}
+    </div>`;
+}
+
 function fmeaForm(invId, item) {
   const d = item || { component: '', failure_mode: '', potential_effect: '', potential_cause: '', current_controls: '', severity: 5, occurrence: 5, detection: 5 };
-  const score = (n, v) => `<select class="select" name="${n}">${Array.from({ length: 10 }, (_, k) => k + 1).map(x => `<option ${x == v ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
+  const score = (n, v) => `<select class="select" name="${n}" data-fmea-score>${Array.from({ length: 10 }, (_, k) => k + 1).map(x => `<option ${x == v ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
   return {
     eyebrow: 'FMEA', title: item ? 'Edit failure mode' : 'Add failure mode', width: 'wide',
     body: `
@@ -871,11 +1143,11 @@ function fmeaForm(invId, item) {
       ${field('Potential cause', `<input class="input" name="potential_cause" value="${esc(d.potential_cause)}">`)}
       ${field('Current controls', `<input class="input" name="current_controls" value="${esc(d.current_controls)}">`)}
       <div class="form-grid three">
-        ${field('Severity (1–10)', score('severity', d.severity))}
-        ${field('Occurrence (1–10)', score('occurrence', d.occurrence))}
-        ${field('Detection (1–10)', score('detection', d.detection))}
+        ${field('Severity (1–10)', score('severity', d.severity), '1 = None · 10 = Catastrophic safety/grid loss')}
+        ${field('Occurrence (1–10)', score('occurrence', d.occurrence), '1 = Remote · 10 = Very frequent')}
+        ${field('Detection (1–10)', score('detection', d.detection), '1 = Certain alarm · 10 = Undetected')}
       </div>
-      <div class="hint dim">Risk priority number is calculated as S × O × D. 100 or above requires a corrective action.</div>`,
+      <div class="fmea-live" id="fmeaLiveBox">${fmeaLiveHtml(d.severity, d.occurrence, d.detection)}</div>`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn btn-primary" data-action="save-fmea" data-id="${invId}" data-fmea="${item ? item.id : ''}">${icon('check')} Save</button>`,
   };
@@ -883,11 +1155,16 @@ function fmeaForm(invId, item) {
 
 function capaForm(invId, item) {
   const d = item || { type: 'corrective', description: '', owner: '', target_date: null, status: 'open', verification_notes: '' };
+  const roots = byInv('five_whys_nodes', invId).filter(n => n.is_root_cause);
   return {
     eyebrow: 'CAPA plan', title: item ? 'Edit action' : 'Add action', width: 'wide',
     body: `
+      ${roots.length ? `<div class="prompt-box">
+        <div class="prompt-box-title">Verified Root Cause(s) to address</div>
+        <div style="font-size:12.5px;color:var(--ink-2)">${roots.map(r => `• ${esc(r.answer || r.question)}`).join('<br>')}</div>
+      </div>` : ''}
       <div class="form-grid">
-        ${field('Action type', select('type', Object.entries(CAPA_TYPE), d.type))}
+        ${field('Action type', select('type', Object.entries(CAPA_TYPE), d.type), 'Corrective = immediate containment · Preventive = long-term fix')}
         ${field('Status', select('status', optsFrom(CAPA_STATUS), d.status))}
       </div>
       ${field('Action', `<textarea class="textarea" name="description" required>${esc(d.description)}</textarea>`)}
@@ -987,6 +1264,10 @@ const ACTIONS = {
   'save-why': (el) => {
     const v = collect(['question','answer','evidence','level','is_root_cause']);
     if (!v.question) { toast('A question is required'); return; }
+    if (Number(v.is_root_cause) === 1 && !v.evidence) {
+      toast('Add supporting evidence (log, photo, test record) to verify a root cause');
+      return;
+    }
     const node = { level: Number(v.level) || 1, question: v.question, answer: v.answer, evidence: v.evidence, is_root_cause: Number(v.is_root_cause) || 0 };
     if (el.dataset.why) Object.assign(DB.five_whys_nodes.find(x => x.id === el.dataset.why), node);
     else {
@@ -1003,7 +1284,8 @@ const ACTIONS = {
     });
   },
 
-  'add-ish': (el) => openModal(ishForm(el.dataset.id, null)),
+  'add-ish': (el) => openModal(ishForm(el.dataset.id, null, el.dataset.vector || null, null)),
+  'add-ish-prompt': (el) => openModal(ishForm(el.dataset.id, null, el.dataset.vector || null, el.dataset.prompt || null)),
   'edit-ish': (el) => { const c = DB.ishikawa_causes.find(x => x.id === el.dataset.ish); if (c) openModal(ishForm(c.investigation_id, c)); },
   'save-ish': (el) => {
     const v = collect(['vector','cause','detail','is_primary']);
@@ -1122,6 +1404,27 @@ document.addEventListener('click', (e) => {
   const sevEl = e.target.closest('[data-sev]');
   if (sevEl) { invFilter.sev = sevEl.dataset.sev; render(); return; }
 
+  const fillQ = e.target.closest('[data-fill-question]');
+  if (fillQ) {
+    const qEl = document.querySelector('#modalHost [name="question"]');
+    if (qEl) { qEl.value = fillQ.dataset.fillQuestion; qEl.focus(); }
+    return;
+  }
+
+  const fillD = e.target.closest('[data-fill-detail]');
+  if (fillD) {
+    const dEl = document.querySelector('#modalHost [name="detail"]');
+    if (dEl) { dEl.value = fillD.dataset.fillDetail; dEl.focus(); }
+    return;
+  }
+
+  const ishVec = e.target.closest('[data-ish-vector]');
+  if (ishVec && !e.target.closest('[data-action]')) {
+    selectedIshVector = ishVec.dataset.ishVector;
+    render();
+    return;
+  }
+
   const capaEl = e.target.closest('[data-capa-filter]');
   if (capaEl) { capaFilter = capaEl.dataset.capaFilter; render(); return; }
 });
@@ -1137,6 +1440,16 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-fmea-score]')) {
+    const box = document.getElementById('fmeaLiveBox');
+    if (box) {
+      const s = document.querySelector('#modalHost [name="severity"]')?.value || 5;
+      const o = document.querySelector('#modalHost [name="occurrence"]')?.value || 5;
+      const d = document.querySelector('#modalHost [name="detection"]')?.value || 5;
+      box.innerHTML = fmeaLiveHtml(s, o, d);
+    }
+    return;
+  }
   if (e.target.id === 'importFile' && e.target.files[0]) {
     const file = e.target.files[0];
     const reader = new FileReader();
