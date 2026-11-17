@@ -280,6 +280,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
   cursor: pointer;
   transition: background .1s;
 }
+.rca-row.compact { grid-template-columns: 1fr auto; }
 .rca-row:last-child { border-bottom: 0; }
 .rca-row:hover { background: var(--bg-alt); }
 .rca-row .sev { font-size: 11px; font-weight: 600; text-align: center; padding: 4px 0; border-radius: var(--radius-sm); }
@@ -373,6 +374,83 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   padding-right: 30px;
 }
 
+/* Custom light-mode dropdown (replaces native <select> so Android/iOS dark-mode
+   OS pickers never override the app's light Fluent theme). */
+.gg-select { position: relative; width: 100%; }
+.gg-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  min-height: 38px;
+}
+.gg-select-trigger[aria-expanded="true"] {
+  background: #FFFFFF;
+  border-color: var(--accent);
+  border-bottom-width: 2px;
+  padding-bottom: 7px;
+}
+.gg-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: transparent;
+}
+.gg-dropdown-menu {
+  position: fixed;
+  z-index: 200;
+  background: #FFFFFF;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-flyout);
+  padding: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.gg-select-opt {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .08s, color .08s;
+}
+.gg-select-opt:hover,
+.gg-select-opt:focus-visible {
+  background: var(--panel-2);
+  outline: none;
+}
+.gg-select-opt.is-selected {
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  font-weight: 600;
+}
+.gg-select-check {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--accent);
+  opacity: 0;
+}
+.gg-select-opt.is-selected .gg-select-check { opacity: 1; }
+
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 20px; }
 .form-grid.three { grid-template-columns: repeat(3, 1fr); }
 .form-grid .col-span-2 { grid-column: span 2; }
@@ -382,7 +460,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .toolbar .search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--ink-3); pointer-events: none; }
 .toolbar .search .input { padding-left: 34px; }
 
-.seg { display: inline-flex; background: #FFFFFF; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 2px; gap: 2px; }
+.seg { display: inline-flex; max-width: 100%; overflow-x: auto; background: #FFFFFF; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 2px; gap: 2px; }
 .seg button {
   height: 26px; padding: 0 12px; border: 0; background: none; border-radius: 3px;
   font-size: 13px; font-weight: 400; color: var(--ink-2); cursor: pointer;
@@ -706,15 +784,28 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .page { padding: 20px 0 56px; }
   .page-head { flex-direction: column; align-items: flex-start; gap: 16px; }
   .stats { grid-template-columns: 1fr; }
-  .rca-row { grid-template-columns: 1fr; gap: 10px; }
+  .rca-row, .rca-row.compact { grid-template-columns: 1fr; gap: 10px; }
   .form-grid, .form-grid.three { grid-template-columns: 1fr; }
   .form-grid .col-span-2 { grid-column: span 1; }
   .ish-grid { grid-template-columns: 1fr; }
   .journey-steps { grid-template-columns: repeat(2, 1fr); }
   .kv { grid-template-columns: 1fr; gap: 2px 0; }
   .kv dt { padding-top: 8px; }
-  .modal-body { padding: 18px; }
+  .overlay { padding: 16px 12px; }
+  .modal-body { padding: 18px; max-height: calc(100dvh - 150px); }
   .modal-head, .modal-foot { padding: 16px 18px; }
+  .gg-dropdown-backdrop { background: rgba(0, 0, 0, .28); }
+  .gg-dropdown-menu {
+    left: 16px !important;
+    right: 16px !important;
+    width: auto !important;
+    top: auto !important;
+    bottom: 16px !important;
+    max-height: 60dvh;
+    padding: 6px;
+    border-radius: var(--radius-lg);
+  }
+  .gg-select-opt { padding: 12px 14px; font-size: 15px; }
 }
 
 /* ---------- print ---------- */

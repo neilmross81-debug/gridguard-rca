@@ -114,7 +114,7 @@ const toDateInput = (iso) => {
   const d = new Date(iso);
   return isNaN(d) ? '' : d.toISOString().slice(0, 10);
 };
-const fromDateInput = (v) => (v ? new Date(v + 'T00:00:00.000').toISOString() : null);
+const fromDateInput = (v) => (v ? new Date(v + 'T00:00:00.000Z').toISOString() : null);
 const chip = (label, tone = 'slate') => `<span class="chip chip-${tone}">${esc(label)}</span>`;
 const sevChip = (s) => { const m = SEVERITY[s]; return m ? chip(m.label, m.tone) : chip(s || '—'); };
 const statusChip = (s) => { const m = STATUS[s]; return m ? chip(m.label, m.tone) : chip(s || '—'); };
@@ -283,7 +283,7 @@ function viewDashboard() {
     .map(c => {
       const inv = invById(c.investigation_id);
       const overdue = c.target_date && new Date(c.target_date) < new Date() && c.status !== 'verified';
-      return `<div class="rca-row" style="grid-template-columns:1fr auto;cursor:pointer" data-goto="#/investigations/${c.investigation_id}/capa">
+      return `<div class="rca-row compact" data-goto="#/investigations/${c.investigation_id}/capa">
         <div>
           <div class="rca-title" style="font-size:14px">${esc(c.description).slice(0, 118)}${c.description.length > 118 ? '…' : ''}</div>
           <div class="rca-meta"><span>${esc(c.owner || 'Unassigned')}</span><span>${esc(inv ? inv.document_code : '')}</span><span>Due ${fmtDate(c.target_date)}</span></div>
@@ -976,17 +976,127 @@ function openModal({ eyebrow = '', title = '', body = '', foot = '', width = '' 
   document.addEventListener('keydown', escClose);
 }
 function closeModal() {
+  closeDropdown();
   document.getElementById('modalHost').innerHTML = '';
   document.removeEventListener('keydown', escClose);
 }
-function escClose(e) { if (e.key === 'Escape') closeModal(); }
+function escClose(e) {
+  if (e.key === 'Escape') {
+    if (activeDropdown) { closeDropdown(); return; }
+    closeModal();
+  }
+}
+
+let activeDropdown = null;
+
+function closeDropdown() {
+  const host = document.getElementById('dropdownHost');
+  if (host) host.innerHTML = '';
+  if (activeDropdown) {
+    activeDropdown.trigger.setAttribute('aria-expanded', 'false');
+    activeDropdown = null;
+  }
+}
+
+function openDropdown(root) {
+  const trigger = root.querySelector('.gg-select-trigger');
+  const input = root.querySelector('input[type="hidden"]');
+  const labelEl = root.querySelector('.gg-select-label');
+  const optsWrap = root.querySelector('.gg-select-options');
+  if (!trigger || !input || !optsWrap) return;
+
+  if (activeDropdown && activeDropdown.root === root) {
+    closeDropdown();
+    return;
+  }
+  closeDropdown();
+
+  const host = document.getElementById('dropdownHost');
+  const backdrop = document.createElement('div');
+  backdrop.className = 'gg-dropdown-backdrop';
+  backdrop.addEventListener('click', closeDropdown);
+
+  const menu = document.createElement('div');
+  menu.className = 'gg-dropdown-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.innerHTML = optsWrap.innerHTML;
+
+  host.appendChild(backdrop);
+  host.appendChild(menu);
+
+  const rect = trigger.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom - 12;
+  const menuHeight = Math.min(260, menu.scrollHeight || 220);
+  const openAbove = spaceBelow < menuHeight && rect.top > spaceBelow;
+  menu.style.left = `${Math.max(8, rect.left)}px`;
+  menu.style.width = `${rect.width}px`;
+  if (openAbove) {
+    menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+  } else {
+    menu.style.top = `${rect.bottom + 4}px`;
+  }
+
+  trigger.setAttribute('aria-expanded', 'true');
+  activeDropdown = { root, trigger, menu };
+
+  const selectedOpt = menu.querySelector('.is-selected') || menu.querySelector('.gg-select-opt');
+  if (selectedOpt) {
+    selectedOpt.scrollIntoView({ block: 'nearest' });
+    selectedOpt.focus({ preventScroll: true });
+  }
+
+  menu.addEventListener('click', (e) => {
+    const opt = e.target.closest('.gg-select-opt');
+    if (!opt) return;
+    const val = opt.dataset.value;
+    input.value = val;
+    if (labelEl) labelEl.textContent = opt.dataset.label || opt.textContent.trim();
+    optsWrap.querySelectorAll('.gg-select-opt').forEach(o => {
+      const isSel = o.dataset.value === val;
+      o.classList.toggle('is-selected', isSel);
+      o.setAttribute('aria-selected', String(isSel));
+    });
+    closeDropdown();
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    trigger.focus();
+  });
+
+  menu.addEventListener('keydown', (e) => {
+    const items = Array.from(menu.querySelectorAll('.gg-select-opt'));
+    const idx = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(idx + 1) % items.length]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === 'Tab') {
+      closeDropdown();
+    }
+  });
+}
 
 function field(label, inner, hint) {
   return `<div class="field"><label>${label}</label>${inner}${hint ? `<span class="hint">${hint}</span>` : ''}</div>`;
 }
-function select(name, options, value) {
-  return `<select class="select" name="${name}">${options.map(([v, l]) =>
-    `<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+function select(name, options, value, extraAttrs = '') {
+  const valStr = String(value ?? '');
+  const matched = options.find(([v]) => String(v) === valStr) || options[0] || ['', ''];
+  const selectedVal = matched[0];
+  const selectedLabel = matched[1];
+  const checkSvg = `<svg class="gg-select-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+  return `<div class="gg-select" data-gg-select>
+    <input type="hidden" name="${esc(name)}" value="${esc(selectedVal)}"${extraAttrs ? ' ' + extraAttrs : ''}>
+    <button type="button" class="select gg-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+      <span class="gg-select-label">${esc(selectedLabel)}</span>
+    </button>
+    <div class="gg-select-options" hidden>
+      ${options.map(([v, l]) => {
+        const sel = String(v) === String(selectedVal);
+        return `<button type="button" class="gg-select-opt ${sel ? 'is-selected' : ''}" role="option" aria-selected="${sel}" data-value="${esc(v)}" data-label="${esc(l)}"><span>${esc(l)}</span>${checkSvg}</button>`;
+      }).join('')}
+    </div>
+  </div>`;
 }
 const optsFrom = (obj) => Object.entries(obj).map(([v, m]) => [v, m.label || m]);
 
@@ -1131,7 +1241,7 @@ function fmeaLiveHtml(s, o, d) {
 
 function fmeaForm(invId, item) {
   const d = item || { component: '', failure_mode: '', potential_effect: '', potential_cause: '', current_controls: '', severity: 5, occurrence: 5, detection: 5 };
-  const score = (n, v) => `<select class="select" name="${n}" data-fmea-score>${Array.from({ length: 10 }, (_, k) => k + 1).map(x => `<option ${x == v ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
+  const score = (n, v) => select(n, Array.from({ length: 10 }, (_, k) => [k + 1, String(k + 1)]), v, 'data-fmea-score');
   return {
     eyebrow: 'FMEA', title: item ? 'Edit failure mode' : 'Add failure mode', width: 'wide',
     body: `
@@ -1384,6 +1494,12 @@ function toast(msg) {
 /* ---------- events ---------- */
 
 document.addEventListener('click', (e) => {
+  const selectTrigger = e.target.closest('.gg-select-trigger');
+  if (selectTrigger) {
+    e.preventDefault();
+    openDropdown(selectTrigger.closest('[data-gg-select]'));
+    return;
+  }
   const actionEl = e.target.closest('[data-action]');
   if (actionEl) {
     const fn = ACTIONS[actionEl.dataset.action];
@@ -1469,6 +1585,7 @@ document.getElementById('newRcaBtn').addEventListener('click', () => ACTIONS['ne
 document.getElementById('settingsBtn').addEventListener('click', () => ACTIONS['settings']());
 document.getElementById('navLinks').addEventListener('click', (e) => { /* handled by delegation */ });
 window.addEventListener('hashchange', render);
+window.addEventListener('resize', closeDropdown);
 
 /* ---------- boot ---------- */
 
