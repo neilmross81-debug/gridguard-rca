@@ -771,6 +771,31 @@ function fmtBytes(b) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function getLinkedCapas(invId, prefix, specificPrefix) {
+  const all = byInv('capa_actions', invId);
+  if (specificPrefix) {
+    const exact = all.filter(c => (c.description || '').startsWith(specificPrefix));
+    if (exact.length) return exact;
+  }
+  return prefix ? all.filter(c => (c.description || '').startsWith(prefix)) : [];
+}
+
+function renderLinkedCapas(invId, prefix, specificPrefix) {
+  const list = getLinkedCapas(invId, prefix, specificPrefix);
+  if (!list.length) return '';
+  return `<div class="att-list" style="margin-top:8px">
+    ${list.map(c => {
+      const st = (CAPA_STATUS[c.status] || {}).label || c.status;
+      const tone = (CAPA_STATUS[c.status] || {}).tone || 'slate';
+      return `<button type="button" class="att-chip" style="padding:3px 9px;cursor:pointer;font-size:12px" data-action="edit-capa" data-capa="${c.id}" title="Click to edit this CAPA action">
+        <span class="chip chip-${c.type === 'preventive' ? 'cyan' : 'accent'}" style="padding:1px 6px;font-size:10.5px">${esc(CAPA_TYPE[c.type] || c.type)}</span>
+        <span style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.description)}</span>
+        <span class="chip chip-${tone}" style="padding:1px 6px;font-size:10.5px">${esc(st)}</span>
+      </button>`;
+    }).join('')}
+  </div>`;
+}
+
 function renderAttachments(invId, area, recordId, showAddBtn = true) {
   const list = (DB.attachments || []).filter(a => a.investigation_id === invId && a.area === area && a.record_id === recordId);
   if (!list.length && !showAddBtn) return '';
@@ -892,6 +917,7 @@ function whyCard(n, isBranch) {
     ${n.answer ? `<div class="why-a">${esc(n.answer)}</div>` : ''}
     ${n.evidence ? `<div class="why-e"><strong class="dim">Evidence:</strong> ${esc(n.evidence)}</div>` : ''}
     ${renderAttachments(n.investigation_id, 'whys', n.id, true)}
+    ${renderLinkedCapas(n.investigation_id, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
     ${!n.is_root_cause && kids === 0 ? `<div class="why-nudge no-print">
       <span><strong>Keep drilling (${esc(nextGuide.stage)}):</strong> ${esc(nextGuide.prompt)}</span>
       <button class="btn btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}">${icon('plus')} Ask Why L${(n.level || 1) + 1}</button>
@@ -970,6 +996,7 @@ function tabIshikawa(i) {
         <strong>${c.is_primary ? '<span style="color:var(--red)">◆ </span>' : ''}${esc(c.cause)}</strong>
         ${esc(c.detail || '')}
         ${renderAttachments(i.id, 'ishikawa', c.id, true)}
+        ${renderLinkedCapas(i.id, `[${VECTOR[c.vector] || c.vector}] ${c.cause}`)}
         <div class="chip-row no-print" style="margin-top:7px">
           <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-type="${c.is_primary ? 'preventive' : 'corrective'}" data-desc="${esc(`[${VECTOR[c.vector] || c.vector}] ${c.cause}${c.detail ? ' — ' + c.detail : ''}`)}">${icon('plus')} CAPA</button>
           <button class="btn btn-ghost btn-sm" data-action="edit-ish" data-ish="${c.id}">${icon('edit')}</button>
@@ -996,7 +1023,7 @@ function tabFmea(i) {
     const [band, tone] = riskBand(rpn);
     const pct = Math.min(100, (rpn / 1000) * 100);
     return `<tr>
-      <td><strong>${esc(f.component)}</strong><div class="dim" style="font-size:12.5px;margin-top:3px">${esc(f.failure_mode)}</div>${renderAttachments(i.id, 'fmea', f.id, true)}</td>
+      <td><strong>${esc(f.component)}</strong><div class="dim" style="font-size:12.5px;margin-top:3px">${esc(f.failure_mode)}</div>${renderAttachments(i.id, 'fmea', f.id, true)}${renderLinkedCapas(i.id, `[FMEA ${f.component}`)}</td>
       <td class="muted">${esc(f.potential_effect)}</td>
       <td class="muted">${esc(f.current_controls || '—')}</td>
       <td class="num">${f.severity}</td>
@@ -1493,10 +1520,8 @@ function rcaForm(i) {
   };
 }
 
-function modalCapaSection(invId, action, idAttrs, matchPrefix) {
-  const existing = matchPrefix
-    ? byInv('capa_actions', invId).filter(c => (c.description || '').startsWith(matchPrefix))
-    : [];
+function modalCapaSection(invId, action, idAttrs, matchPrefix, specificPrefix) {
+  const existing = getLinkedCapas(invId, matchPrefix, specificPrefix);
   return `<div class="prompt-box" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <div style="flex:1;min-width:200px">
       <div class="prompt-box-title" style="margin-bottom:2px">CAPA Plan Actions${existing.length ? ` (${existing.length})` : ''}</div>
@@ -1539,7 +1564,7 @@ function whyForm(invId, node, parentId, level) {
       ${field('Question', `<input class="input" name="question" value="${esc(d.question)}" placeholder="Why did…" required>`)}
       ${field('Finding', `<textarea class="textarea" name="answer" placeholder="State the verified physical, control, or process finding…">${esc(d.answer)}</textarea>`)}
       ${field('Evidence (required to verify root cause)', `<input class="input" name="evidence" value="${esc(d.evidence)}" placeholder="COMTRADE record, SOE log, borescope photo ID, SAP BOM…">`)}
-      ${modalCapaSection(invId, 'save-why-capa', whyAttrs, node ? `[5 Whys L${node.level}]` : '')}`,
+      ${modalCapaSection(invId, 'save-why-capa', whyAttrs, node ? `[5 Whys L${node.level}]` : '', node ? `[5 Whys L${node.level}] ${(node.answer || node.question || '').slice(0, 30)}` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn" data-action="save-why-capa" ${whyAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-why" ${whyAttrs}>${icon('check')} Save</button>`,
