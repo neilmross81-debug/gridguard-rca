@@ -158,8 +158,46 @@ const riskBand = (rpn) => rpn >= 200 ? ['Critical', 'red'] : rpn >= 100 ? ['High
 function seed() {
   const INV = 'rca-osp1-220kv-gis-001';
   return {
+    sites: [
+      { id: 'site-osp1', name: 'North Sea Offshore Substation OSP-01', code: 'OSP-01', region: 'North Sea', voltage_class: '220 kV' },
+      { id: 'site-rampion', name: 'Rampion Offshore Windfarm', code: 'RMP-01', region: 'English Channel', voltage_class: '150 kV / 33 kV' },
+      { id: 'site-thames', name: 'Thames Estuary Onshore Grid', code: 'THM-01', region: 'South East UK', voltage_class: '400 kV' },
+    ],
+    app_users: [
+      {
+        id: 'usr-demo',
+        username: 'demo',
+        password: 'demo',
+        full_name: 'Demo Administrator',
+        role_title: 'Global HV Operations Admin',
+        is_global_admin: 1,
+        site_roles: { 'site-osp1': 'admin', 'site-rampion': 'admin', 'site-thames': 'admin' },
+        assigned_rcas: [],
+      },
+      {
+        id: 'usr-editor',
+        username: 'editor',
+        password: 'demo',
+        full_name: 'Henrik Lindqvist',
+        role_title: 'Lead HV Operations Engineer',
+        is_global_admin: 0,
+        site_roles: { 'site-osp1': 'editor', 'site-rampion': 'viewer' },
+        assigned_rcas: [],
+      },
+      {
+        id: 'usr-viewer',
+        username: 'viewer',
+        password: 'demo',
+        full_name: 'Site Safety Auditor',
+        role_title: 'HSE & Compliance Viewer',
+        is_global_admin: 0,
+        site_roles: { 'site-osp1': 'viewer' },
+        assigned_rcas: [],
+      },
+    ],
     investigations: [{
       id: INV,
+      site_id: 'site-osp1',
       document_code: 'RCA-2026-OSP1-004',
       title: '220kV GIS Bay 04 SF6 Low-Pressure Trip & SCADA Telemetry Loss',
       facility_name: 'North Sea Offshore Substation OSP-01',
@@ -224,19 +262,60 @@ function seed() {
 
 let DB = null;
 
+function ensureSitesAndUsers(pushToCloud = false) {
+  const defaults = seed();
+  if (!Array.isArray(DB.sites) || DB.sites.length === 0) {
+    DB.sites = defaults.sites.map(s => Object.assign({}, s));
+    if (pushToCloud) sbUpsert('sites', DB.sites);
+  }
+  if (!Array.isArray(DB.app_users) || DB.app_users.length === 0) {
+    DB.app_users = defaults.app_users.map(u => Object.assign({}, u));
+    if (pushToCloud) sbUpsert('app_users', DB.app_users);
+  }
+  DB.app_users.forEach(u => {
+    if (typeof u.site_roles === 'string') {
+      try { u.site_roles = JSON.parse(u.site_roles); } catch (e) { u.site_roles = {}; }
+    }
+    if (!u.site_roles || typeof u.site_roles !== 'object') u.site_roles = {};
+    if (typeof u.assigned_rcas === 'string') {
+      try { u.assigned_rcas = JSON.parse(u.assigned_rcas); } catch (e) { u.assigned_rcas = []; }
+    }
+    if (!Array.isArray(u.assigned_rcas)) u.assigned_rcas = [];
+  });
+
+  const updatedInvs = [];
+  (DB.investigations || []).forEach(inv => {
+    if (!inv.site_id || !DB.sites.some(s => s.id === inv.site_id)) {
+      const fn = String(inv.facility_name || '').toLowerCase();
+      const matched = DB.sites.find(s =>
+        (fn && (s.name.toLowerCase().includes(fn) || fn.includes(s.name.toLowerCase()) || fn.includes(s.code.toLowerCase()))) ||
+        (fn.includes('rampion') && s.id === 'site-rampion') ||
+        (fn.includes('thames') && s.id === 'site-thames')
+      ) || DB.sites[0];
+      if (matched) {
+        inv.site_id = matched.id;
+        updatedInvs.push(inv);
+      }
+    }
+  });
+  if (pushToCloud && updatedInvs.length) sbUpsert('investigations', updatedInvs);
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) { DB = seed(); save(); return DB; }
+    if (!raw) { DB = seed(); ensureSitesAndUsers(false); save(); return DB; }
     const parsed = JSON.parse(raw);
     DB = Object.assign(seed(), parsed);
-    ['investigations','five_whys_nodes','ishikawa_causes','fmea_items','capa_actions','timeline_events','attachments'].forEach(k => {
+    ['sites','app_users','investigations','five_whys_nodes','ishikawa_causes','fmea_items','capa_actions','timeline_events','attachments'].forEach(k => {
       if (!Array.isArray(DB[k])) DB[k] = [];
     });
     if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
+    ensureSitesAndUsers(false);
     return DB;
   } catch (e) {
     DB = seed();
+    ensureSitesAndUsers(false);
     return DB;
   }
 }
@@ -256,14 +335,115 @@ function save() {
   pushWebhook();
 }
 const invById = (id) => DB.investigations.find(i => i.id === id);
+const siteById = (id) => (DB.sites || []).find(s => s.id === id);
 const byInv = (coll, id) => DB[coll].filter(r => r.investigation_id === id);
 const capasByStatus = (s) => DB.capa_actions.filter(c => c.status === s);
+
+/* ---------- auth & multi-site RBAC ---------- */
+
+const SESSION_KEY = 'gridguard_session_v1';
+let activeSiteId = 'all';
+
+function getSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function setSession(userId) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ userId })); } catch (e) {}
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+function currentUser() {
+  const s = getSession();
+  if (!s || !s.userId) return null;
+  return (DB.app_users || []).find(u => u.id === s.userId) || null;
+}
+function userRoleForSite(user, siteId) {
+  if (!user) return null;
+  if (user.is_global_admin) return 'admin';
+  return (user.site_roles && siteId && user.site_roles[siteId]) || null;
+}
+function roleForInv(user, inv) {
+  if (!user || !inv) return null;
+  if (user.is_global_admin) return 'admin';
+  const sr = userRoleForSite(user, inv.site_id);
+  const assigned = Array.isArray(user.assigned_rcas) && user.assigned_rcas.includes(inv.id);
+  if (sr === 'admin' || sr === 'editor') return sr;
+  if (assigned) return sr || 'editor';
+  if (sr === 'viewer') return 'viewer';
+  return null;
+}
+function canAccessInv(user, inv) {
+  return Boolean(roleForInv(user, inv));
+}
+function canEditInv(inv) {
+  const r = roleForInv(currentUser(), inv);
+  return r === 'admin' || r === 'editor';
+}
+function canAdminSite(user, siteId) {
+  return Boolean(user && (user.is_global_admin || userRoleForSite(user, siteId) === 'admin'));
+}
+function canManageAnySite(user) {
+  return Boolean(user && (user.is_global_admin || Object.values(user.site_roles || {}).includes('admin')));
+}
+function canCreateRca(user) {
+  return Boolean(user && (user.is_global_admin || Object.values(user.site_roles || {}).some(r => r === 'admin' || r === 'editor')));
+}
+function editableSitesForUser(user) {
+  if (!user) return [];
+  if (user.is_global_admin) return (DB.sites || []).slice();
+  return (DB.sites || []).filter(s => ['admin', 'editor'].includes(userRoleForSite(user, s.id)));
+}
+function accessibleSites(user) {
+  if (!user) return [];
+  if (user.is_global_admin) return (DB.sites || []).slice();
+  const invSiteIds = new Set(
+    (DB.investigations || []).filter(i => canAccessInv(user, i)).map(i => i.site_id).filter(Boolean)
+  );
+  return (DB.sites || []).filter(s => Boolean(userRoleForSite(user, s.id)) || invSiteIds.has(s.id));
+}
+function accessibleInvs() {
+  const u = currentUser();
+  if (!u) return [];
+  return (DB.investigations || []).filter(i => canAccessInv(u, i));
+}
+function filteredInvs() {
+  return accessibleInvs().filter(i => activeSiteId === 'all' || i.site_id === activeSiteId);
+}
+function accessibleCapas() {
+  const ids = new Set(accessibleInvs().map(i => i.id));
+  return (DB.capa_actions || []).filter(c => ids.has(c.investigation_id));
+}
+function filteredCapas() {
+  const ids = new Set(filteredInvs().map(i => i.id));
+  return (DB.capa_actions || []).filter(c => ids.has(c.investigation_id));
+}
+function userRoleSummary(user) {
+  if (!user) return '';
+  if (user.is_global_admin) return 'Global Admin';
+  const roles = Object.values(user.site_roles || {});
+  if (roles.includes('admin')) return 'Site Admin';
+  if (roles.includes('editor')) return 'Editor';
+  if (roles.includes('viewer')) return 'Viewer';
+  if ((user.assigned_rcas || []).length) return 'Assigned RCA';
+  return 'User';
+}
+function siteFilterSelect() {
+  const sites = accessibleSites(currentUser());
+  if (!sites.length) return '';
+  const opts = [['all', `All accessible sites (${sites.length})`], ...sites.map(s => [s.id, `${s.code} — ${s.name}`])];
+  return `<div style="min-width:240px">${select('active_site', opts, activeSiteId)}</div>`;
+}
 
 /* ---------- Supabase multi-user cloud sync ---------- */
 
 const SUPABASE_URL = 'https://nhhtxfimvlapqlbvcrlz.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_5gmDFx3BwVPjNBxjobriDQ_LpDxDAnl';
-const SB_TABLES = ['investigations', 'timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions', 'attachments'];
+const INV_CHILD_TABLES = ['timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions', 'attachments'];
+const SB_TABLES = ['sites', 'app_users', 'investigations', ...INV_CHILD_TABLES];
 const SB_MIGRATED_KEY = 'gridguard_supabase_migrated_v1';
 
 let syncState = { status: 'syncing', text: 'Syncing…', detail: 'Connecting to Supabase…' };
@@ -353,7 +533,7 @@ function handleSbWriteError(err) {
 async function syncFromSupabase(showToast = false) {
   setSyncState('syncing', 'Syncing…', 'Fetching shared RCAs from Supabase…');
   try {
-    const results = await Promise.all(SB_TABLES.map(t => sbFetch(`${t}?select=*`)));
+    const results = await Promise.all(SB_TABLES.map(t => sbFetch(`${t}?select=*`).catch(() => [])));
     const remote = {};
     SB_TABLES.forEach((t, idx) => { remote[t] = Array.isArray(results[idx]) ? results[idx] : []; });
 
@@ -370,7 +550,7 @@ async function syncFromSupabase(showToast = false) {
         if (localOnlyInvs.length) {
           const localOnlyIds = new Set(localOnlyInvs.map(i => i.id));
           await sbUpsert('investigations', localOnlyInvs);
-          for (const t of SB_TABLES.slice(1)) {
+          for (const t of INV_CHILD_TABLES) {
             const childRows = (DB[t] || []).filter(r => localOnlyIds.has(r.investigation_id));
             if (childRows.length) await sbUpsert(t, childRows);
             remote[t] = remote[t].concat(childRows);
@@ -380,9 +560,17 @@ async function syncFromSupabase(showToast = false) {
         }
         localStorage.setItem(SB_MIGRATED_KEY, '1');
       }
-      SB_TABLES.forEach(t => { DB[t] = remote[t]; });
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) {}
+      SB_TABLES.forEach(t => {
+        if ((t === 'sites' || t === 'app_users') && remote[t].length === 0 && DB[t].length > 0) {
+          sbUpsert(t, DB[t]);
+        } else {
+          DB[t] = remote[t];
+        }
+      });
     }
+
+    ensureSitesAndUsers(true);
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) {}
 
     lastSyncAt = Date.now();
     setSyncState('ok', 'Synced', `Shared cloud · ${DB.investigations.length} RCA(s) · ${new Date().toLocaleTimeString()}`);
@@ -420,26 +608,120 @@ function parseRoute() {
   if (!parts.length) return { page: 'dashboard' };
   if (parts[0] === 'investigations') return { page: parts[1] ? 'rca' : 'investigations', id: parts[1], tab: parts[2] || 'overview' };
   if (parts[0] === 'capas') return { page: 'capas' };
+  if (parts[0] === 'admin') return { page: 'admin' };
   return { page: 'dashboard' };
 }
 const go = (hash) => { location.hash = hash; };
 
+/* ---------- landing / login ---------- */
+
+function viewLanding() {
+  return `
+  <section class="landing">
+    <div class="landing-grid"></div>
+    <div class="landing-orb a"></div>
+    <div class="landing-orb b"></div>
+    <div class="landing-nodes">
+      <span class="landing-node n1"></span>
+      <span class="landing-node n2"></span>
+      <span class="landing-node n3"></span>
+      <span class="landing-node n4"></span>
+    </div>
+    <div class="landing-inner">
+      <div class="landing-brand">
+        <div class="landing-brand-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/>
+          </svg>
+        </div>
+        <h1 class="landing-title">GridGuard RCA</h1>
+        <p class="landing-sub">HV &amp; Renewable Operations · Multi-Site Root Cause Intelligence</p>
+      </div>
+
+      <div class="login-card">
+        <div class="login-demo-banner">
+          <strong>Tester Demo Account (Pre-filled):</strong><br>
+          Username: <span class="mono">demo</span> &nbsp;·&nbsp; Password: <span class="mono">demo</span>
+        </div>
+        <form id="loginForm">
+          ${field('Username', `<input class="input" type="text" name="login_username" value="demo" autocomplete="username" required>`)}
+          ${field('Password (plain text for testing)', `<input class="input" type="text" name="login_password" value="demo" autocomplete="current-password" required>`)}
+          <div id="loginError" class="dim" style="color:var(--red);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>
+          <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px 16px" data-action="login">
+            ${icon('check')} Sign in to GridGuard
+          </button>
+        </form>
+        <div class="login-quick">
+          <span>Quick switch role:</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="demo" data-pass="demo">Admin (demo)</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="editor" data-pass="demo">Editor</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="viewer" data-pass="demo">Viewer</button>
+        </div>
+      </div>
+
+      <div class="landing-features">
+        <span class="landing-feat">Multi-Site RBAC</span>
+        <span class="landing-feat">5 Whys &amp; Ishikawa 6M</span>
+        <span class="landing-feat">FMEA Risk Matrix</span>
+        <span class="landing-feat">CAPA Tracking</span>
+        <span class="landing-feat">Cloud Sync</span>
+      </div>
+    </div>
+  </section>`;
+}
+
 /* ---------- shell ---------- */
 
 function render() {
+  const user = currentUser();
+  const header = document.getElementById('appHeader');
+  const viewEl = document.getElementById('view');
+  const landingHost = document.getElementById('landingHost');
+
+  if (!user) {
+    if (header) header.style.display = 'none';
+    if (viewEl) viewEl.style.display = 'none';
+    if (landingHost) landingHost.innerHTML = viewLanding();
+    return;
+  }
+
+  if (header) header.style.display = '';
+  if (viewEl) viewEl.style.display = '';
+  if (landingHost) landingHost.innerHTML = '';
+
+  const adminNavBtn = document.getElementById('adminNavBtn');
+  if (adminNavBtn) adminNavBtn.style.display = canManageAnySite(user) ? '' : 'none';
+  const newRcaBtn = document.getElementById('newRcaBtn');
+  if (newRcaBtn) newRcaBtn.style.display = canCreateRca(user) ? '' : 'none';
+
+  const userChipHost = document.getElementById('userChipHost');
+  if (userChipHost) {
+    userChipHost.innerHTML = `<div class="user-pill">
+      <span class="user-pill-name">${esc(user.full_name || user.username)}</span>
+      <span class="user-pill-role">${esc(userRoleSummary(user))}</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="logout" style="padding:2px 6px;font-size:11.5px">Sign out</button>
+    </div>`;
+  }
+
   const r = parseRoute();
   const v = document.getElementById('view');
-  if (r.page === 'dashboard')      v.innerHTML = viewDashboard();
+  if (r.page === 'dashboard')           v.innerHTML = viewDashboard();
   else if (r.page === 'investigations') v.innerHTML = viewInvestigations();
-  else if (r.page === 'rca')       v.innerHTML = viewRca(r.id, r.tab);
-  else if (r.page === 'capas')     v.innerHTML = viewCapas();
+  else if (r.page === 'rca')            v.innerHTML = viewRca(r.id, r.tab);
+  else if (r.page === 'capas')          v.innerHTML = viewCapas();
+  else if (r.page === 'admin') {
+    v.innerHTML = canManageAnySite(user)
+      ? viewAdmin()
+      : `<div class="empty"><strong>Access restricted</strong>Site Admin or Global Admin permissions are required. <button class="btn btn-sm" data-route="#/">Back to dashboard</button></div>`;
+  }
 
   document.querySelectorAll('.nav-link').forEach(b => {
     const t = b.dataset.route;
     b.classList.toggle('active',
       (t === '#/' && r.page === 'dashboard') ||
       (t === '#/investigations' && (r.page === 'investigations' || r.page === 'rca')) ||
-      (t === '#/capas' && r.page === 'capas'));
+      (t === '#/capas' && r.page === 'capas') ||
+      (t === '#/admin' && r.page === 'admin'));
   });
   window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
 }
@@ -447,9 +729,13 @@ function render() {
 /* ---------- view: dashboard ---------- */
 
 function viewDashboard() {
-  const openCapas = DB.capa_actions.filter(c => c.status === 'open' || c.status === 'inProgress');
-  const highRpn = DB.fmea_items.filter(f => rpnOf(f) >= 100);
-  const critical = DB.investigations.filter(i => i.severity === 'critical' || i.severity === 'catastrophic');
+  const invs = filteredInvs();
+  const invIds = new Set(invs.map(i => i.id));
+  const capas = filteredCapas();
+  const fmeas = (DB.fmea_items || []).filter(f => invIds.has(f.investigation_id));
+  const openCapas = capas.filter(c => c.status === 'open' || c.status === 'inProgress');
+  const highRpn = fmeas.filter(f => rpnOf(f) >= 100);
+  const critical = invs.filter(i => i.severity === 'critical' || i.severity === 'catastrophic');
 
   const stat = (tone, ic, value, label, foot) => `
     <div class="stat tone-${tone}">
@@ -458,12 +744,11 @@ function viewDashboard() {
       <div class="stat-foot">${foot}</div>
     </div>`;
 
-  const rows = DB.investigations
+  const rows = invs
     .slice().sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
-    .map(i => rcaRow(i)).join('') || `<div class="empty"><strong>No investigations yet</strong>Create your first RCA to begin tracking root causes and corrective actions.</div>`;
+    .map(i => rcaRow(i)).join('') || `<div class="empty"><strong>No investigations visible</strong>No RCAs match your site access or current filter.</div>`;
 
-  const capaRows = DB.capa_actions
-    .filter(c => c.status === 'open' || c.status === 'inProgress')
+  const capaRows = openCapas
     .slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0))
     .map(c => {
       const inv = invById(c.investigation_id);
@@ -482,19 +767,20 @@ function viewDashboard() {
     <div>
       <div class="eyebrow">Operations Overview</div>
       <h1 class="display">Root cause intelligence<br>for HV &amp; renewable assets.</h1>
-      <p class="lede">Structured 5 Whys, Ishikawa 6M and FMEA analysis with a tracked corrective action plan — one register covering every investigation on the network.</p>
+      <p class="lede">Structured 5 Whys, Ishikawa 6M and FMEA analysis with a tracked corrective action plan — scoped to your assigned sites and RCAs.</p>
     </div>
     <div class="page-actions">
+      ${siteFilterSelect()}
       <button class="btn" data-route="#/investigations">Open register</button>
       <button class="btn" data-action="print-dashboard">${icon('print')} Export</button>
     </div>
   </div>
 
   <div class="stats">
-    ${stat('cyan',  'clipboard', DB.investigations.length, 'Total RCAs', `${DB.investigations.filter(i => i.status === 'inReview').length} awaiting review`)}
+    ${stat('cyan',  'clipboard', invs.length, 'Accessible RCAs', `${invs.filter(i => i.status === 'inReview').length} awaiting review`)}
     ${stat('red',   'alert',     critical.length, 'Active Critical', `${critical.filter(i => i.status !== 'closed').length} still open`)}
-    ${stat('amber', 'clock',     openCapas.length, 'Open CAPAs', `${DB.capa_actions.length} actions tracked`)}
-    ${stat('slate', 'chart',     highRpn.length, 'High RPN (≥100)', `Assessed across ${DB.fmea_items.length} failure modes`)}
+    ${stat('amber', 'clock',     openCapas.length, 'Open CAPAs', `${capas.length} actions tracked`)}
+    ${stat('slate', 'chart',     highRpn.length, 'High RPN (≥100)', `Assessed across ${fmeas.length} failure modes`)}
   </div>
 
   <div class="grid-2">
@@ -517,18 +803,21 @@ function viewDashboard() {
 }
 
 function rcaRow(i) {
+  const site = siteById(i.site_id);
+  const role = roleForInv(currentUser(), i);
   return `<div class="rca-row" data-goto="#/investigations/${i.id}/overview">
     <div>${sevChip(i.severity)}</div>
     <div>
       <div class="rca-title">${esc(i.title)}</div>
       <div class="rca-meta">
         <span class="mono">${esc(i.document_code)}</span>
+        ${site ? `<span class="chip chip-slate" style="padding:1px 6px;font-size:11px">${esc(site.code)}</span>` : ''}
         <span>${esc(i.facility_name)}</span>
         <span>${esc(i.equipment_tag || '—')}</span>
         <span>Updated ${fmtDate(i.updated_at)}</span>
       </div>
     </div>
-    <div class="chip-row">${statusChip(i.status)}</div>
+    <div class="chip-row">${role === 'viewer' ? chip('View only', 'slate') : ''}${statusChip(i.status)}</div>
   </div>`;
 }
 
@@ -537,7 +826,8 @@ function rcaRow(i) {
 let invFilter = { q: '', sev: 'all' };
 
 function viewInvestigations() {
-  let list = DB.investigations.slice();
+  const baseList = filteredInvs();
+  let list = baseList.slice();
   if (invFilter.sev !== 'all') list = list.filter(i => i.severity === invFilter.sev);
   const q = invFilter.q.toLowerCase().trim();
   if (q) list = list.filter(i => [i.title, i.document_code, i.facility_name, i.equipment_tag, i.investigator_name]
@@ -555,14 +845,15 @@ function viewInvestigations() {
     <div>
       <div class="eyebrow">Register</div>
       <h1 class="display">Investigations</h1>
-      <p class="lede">${DB.investigations.length} record${DB.investigations.length === 1 ? '' : 's'} in the register.</p>
+      <p class="lede">${baseList.length} accessible record${baseList.length === 1 ? '' : 's'} in the register.</p>
     </div>
     <div class="page-actions">
-      <button class="btn btn-primary" data-action="new-rca">${icon('plus')} New RCA</button>
+      ${canCreateRca(currentUser()) ? `<button class="btn btn-primary" data-action="new-rca">${icon('plus')} New RCA</button>` : ''}
     </div>
   </div>
 
   <div class="toolbar">
+    ${siteFilterSelect()}
     <div class="search">${icon('search')}<input class="input" id="invSearch" placeholder="Search title, document code, tag or investigator…" value="${esc(invFilter.q)}"></div>
     <div class="seg" id="sevSeg">${seg}</div>
   </div>
@@ -697,7 +988,12 @@ function computeRcaJourney(i) {
 function viewRca(id, tab) {
   const i = invById(id);
   if (!i) return `<div class="empty"><strong>Investigation not found</strong>It may have been deleted. <button class="btn btn-sm" data-route="#/investigations">Back to register</button></div>`;
+  if (!canAccessInv(currentUser(), i)) {
+    return `<div class="empty"><strong>Access restricted</strong>You do not have permission to view this investigation. <button class="btn btn-sm" data-route="#/investigations">Back to register</button></div>`;
+  }
 
+  const editable = canEditInv(i);
+  const site = siteById(i.site_id);
   const journey = computeRcaJourney(i);
   const tabs = TAB_LABELS.map(([k, l]) => `<button class="tab ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('');
 
@@ -712,7 +1008,7 @@ function viewRca(id, tab) {
   const coachHtml = journey.next
     ? `<div class="coach-banner">
         <div class="coach-text"><strong>Next step:</strong> ${esc(journey.next.text)}</div>
-        ${journey.next.action
+        ${journey.next.action && editable
           ? `<button class="btn btn-primary btn-sm" data-action="${journey.next.action}" data-id="${i.id}">${esc(journey.next.cta)}</button>`
           : `<button class="btn btn-primary btn-sm" data-tab="${journey.next.tab}">${esc(journey.next.cta)}</button>`}
       </div>`
@@ -728,17 +1024,18 @@ function viewRca(id, tab) {
 
   <div class="page-head">
     <div>
-      <div class="eyebrow">${esc(FAULT[i.fault_category] || i.fault_category || 'Unclassified')} · ${esc(ASSET[i.asset_category] || i.asset_category || '')}</div>
+      <div class="eyebrow">${site ? esc(site.code + ' · ') : ''}${esc(FAULT[i.fault_category] || i.fault_category || 'Unclassified')} · ${esc(ASSET[i.asset_category] || i.asset_category || '')}</div>
       <h1 class="display" style="font-size:clamp(24px,2.6vw,34px)">${esc(i.title)}</h1>
       <div class="chip-row" style="margin-top:16px">
         ${sevChip(i.severity)} ${statusChip(i.status)}
         ${chip(i.voltage_class || '—', 'slate')}
+        ${!editable ? chip('Read-only (Viewer)', 'amber') : ''}
       </div>
     </div>
     <div class="page-actions">
-      <button class="btn" data-action="edit-rca" data-id="${i.id}">${icon('edit')} Edit</button>
+      ${editable ? `<button class="btn" data-action="edit-rca" data-id="${i.id}">${icon('edit')} Edit</button>` : ''}
       <button class="btn" data-action="print">${icon('print')} Report</button>
-      <button class="icon-btn" data-action="del-rca" data-id="${i.id}" title="Delete investigation" aria-label="Delete investigation">${icon('trash')}</button>
+      ${editable ? `<button class="icon-btn" data-action="del-rca" data-id="${i.id}" title="Delete investigation" aria-label="Delete investigation">${icon('trash')}</button>` : ''}
     </div>
   </div>
 
@@ -792,7 +1089,7 @@ function renderLinkedCapas(invId, sourceRef, prefix, specificPrefix) {
     ${list.map(c => {
       const st = (CAPA_STATUS[c.status] || {}).label || c.status;
       const tone = (CAPA_STATUS[c.status] || {}).tone || 'slate';
-      return `<button type="button" class="att-chip" style="padding:3px 9px;cursor:pointer;font-size:12px" data-action="edit-capa" data-capa="${c.id}" title="Click to edit this CAPA action">
+      return `<button type="button" class="att-chip" style="padding:3px 9px;cursor:pointer;font-size:12px" data-action="edit-capa" data-capa="${c.id}" title="Click to view or edit this CAPA action">
         <span class="chip chip-${c.type === 'preventive' ? 'cyan' : 'accent'}" style="padding:1px 6px;font-size:10.5px">${esc(CAPA_TYPE[c.type] || c.type)}</span>
         <span style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.description)}</span>
         <span class="chip chip-${tone}" style="padding:1px 6px;font-size:10.5px">${esc(st)}</span>
@@ -816,8 +1113,10 @@ function renderLinkedCapaTabs(invId, sourceRef, prefix, specificPrefix) {
 }
 
 function renderAttachments(invId, area, recordId, showAddBtn = true, extraHtml = '') {
+  const inv = invById(invId);
+  const editable = inv ? canEditInv(inv) : false;
   const list = (DB.attachments || []).filter(a => a.investigation_id === invId && a.area === area && a.record_id === recordId);
-  if (!list.length && !showAddBtn && !extraHtml) return '';
+  if (!list.length && !(showAddBtn && editable) && !extraHtml) return '';
   const chips = list.map(a => {
     const isImg = /^image\//i.test(a.mime_type || '') && a.data_url;
     const iconHtml = isImg
@@ -829,17 +1128,18 @@ function renderAttachments(invId, area, recordId, showAddBtn = true, extraHtml =
         <span class="att-name">${esc(a.file_name)}</span>
         <span class="att-size">${fmtBytes(a.size_bytes)}</span>
       </button>
-      <button type="button" class="att-del no-print" data-action="del-attachment" data-att="${a.id}" title="Remove attachment" aria-label="Remove attachment">×</button>
+      ${editable ? `<button type="button" class="att-del no-print" data-action="del-attachment" data-att="${a.id}" title="Remove attachment" aria-label="Remove attachment">×</button>` : ''}
     </span>`;
   }).join('');
 
-  const addBtn = showAddBtn
+  const addBtn = (showAddBtn && editable)
     ? `<button type="button" class="btn btn-ghost btn-sm no-print" data-action="add-attachment" data-id="${invId}" data-area="${area}" data-record="${recordId}">${icon('paperclip')} Attach</button>`
     : '';
   return `<div class="att-list">${chips}${addBtn}${extraHtml}</div>`;
 }
 
 function tabOverview(i) {
+  const editable = canEditInv(i);
   return `
   <div class="grid-2">
     <div>
@@ -860,10 +1160,10 @@ function tabOverview(i) {
       <section class="section" style="margin-bottom:0">
         <div class="section-head">
           <div><h2 class="h3">Attachments &amp; evidence</h2><p>Photos, COMTRADE records, test sheets, and supporting files</p></div>
-          <div class="chip-row no-print">
+          ${editable ? `<div class="chip-row no-print">
             <button class="btn btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="overview:${i.id}" data-type="corrective" data-desc="${esc(`[Overview ${i.document_code}] `)}">${icon('plus')} Create CAPA</button>
             <button class="btn btn-primary btn-sm" data-action="add-attachment" data-id="${i.id}" data-area="overview" data-record="${i.id}">${icon('paperclip')} Attach file</button>
-          </div>
+          </div>` : ''}
         </div>
         <div class="card card-pad">
           ${renderAttachments(i.id, 'overview', i.id, false) || '<p class="dim" style="margin:0">No investigation-level attachments yet. You can also attach files directly inside Timeline, 5 Whys, Ishikawa 6M, FMEA, and CAPA items.</p>'}
@@ -898,6 +1198,7 @@ function tabOverview(i) {
 }
 
 function tabWhys(i) {
+  const editable = canEditInv(i);
   const nodes = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const roots = nodes.filter(n => !n.parent_id);
   const chainOne = (n, isBranch) => whyCard(n, isBranch) + nodes.filter(x => x.parent_id === n.id).map(g => chainOne(g, true)).join('');
@@ -908,12 +1209,14 @@ function tabWhys(i) {
   return `
   <div class="section-head">
     <div><h2 class="h3">5 Whys interrogative chain</h2><p>Drill down through immediate triggers (L1–L2) to process &amp; design gaps (L4–L5)</p></div>
-    <button class="btn btn-primary btn-sm" data-action="add-why" data-id="${i.id}">${icon('plus')} Add why</button>
+    ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-why" data-id="${i.id}">${icon('plus')} Add why</button>` : ''}
   </div>
   ${body}`;
 }
 
 function whyCard(n, isBranch) {
+  const inv = invById(n.investigation_id);
+  const editable = inv ? canEditInv(inv) : false;
   const levelLabel = `Why L${n.level}`;
   const guide = WHY_LEVEL_GUIDE[Math.min(5, Math.max(1, Number(n.level) || 1))];
   const kids = DB.five_whys_nodes.filter(x => x.parent_id === n.id).length;
@@ -925,12 +1228,12 @@ function whyCard(n, isBranch) {
       <span class="why-level">${levelLabel} · ${esc(guide.stage)}</span>
       ${n.is_root_cause ? chip('Verified root cause', 'green') : ''}
       ${isBranch ? chip('Contributing branch', 'amber') : ''}
-      <div style="margin-left:auto" class="chip-row no-print">
-        <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${n.investigation_id}" data-type="${n.is_root_cause ? 'preventive' : 'corrective'}" data-desc="${esc(capaDesc)}">${icon('plus')} CAPA</button>
+      ${editable ? `<div style="margin-left:auto" class="chip-row no-print">
+        <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${n.investigation_id}" data-ref="whys:${n.id}" data-type="${n.is_root_cause ? 'preventive' : 'corrective'}" data-desc="${esc(capaDesc)}">${icon('plus')} CAPA</button>
         <button class="btn btn-ghost btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}">${icon('plus')} Branch</button>
         <button class="btn btn-ghost btn-sm" data-action="edit-why" data-why="${n.id}">${icon('edit')}</button>
         <button class="btn btn-ghost btn-sm" data-action="del-why" data-why="${n.id}">${icon('trash')}</button>
-      </div>
+      </div>` : ''}
     </div>
     <div class="why-q">${esc(n.question)}</div>
     ${n.answer ? `<div class="why-a">${esc(n.answer)}</div>` : ''}
@@ -938,7 +1241,7 @@ function whyCard(n, isBranch) {
     ${renderAttachments(n.investigation_id, 'whys', n.id, true)}
     ${renderLinkedCapaTabs(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
     ${renderLinkedCapas(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
-    ${!n.is_root_cause && kids === 0 ? `<div class="why-nudge no-print">
+    ${editable && !n.is_root_cause && kids === 0 ? `<div class="why-nudge no-print">
       <span><strong>Keep drilling (${esc(nextGuide.stage)}):</strong> ${esc(nextGuide.prompt)}</span>
       <button class="btn btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}">${icon('plus')} Ask Why L${(n.level || 1) + 1}</button>
     </div>` : ''}
@@ -990,11 +1293,12 @@ function renderFishboneSvg(i, causes) {
 }
 
 function tabIshikawa(i) {
+  const editable = canEditInv(i);
   const causes = byInv('ishikawa_causes', i.id);
   const activeVec = selectedIshVector || 'machine';
   const prompts = ISHIKAWA_PROMPTS[activeVec] || [];
 
-  const drawer = `<div class="ish-drawer no-print">
+  const drawer = editable ? `<div class="ish-drawer no-print">
     <div class="ish-drawer-head">
       <div>
         <div style="font-size:12px;font-weight:600;color:var(--accent)">Diagnostic Questions · ${esc(VECTOR[activeVec])}</div>
@@ -1005,7 +1309,7 @@ function tabIshikawa(i) {
     <div class="prompt-chips">
       ${prompts.map(p => `<button class="prompt-chip" data-action="add-ish-prompt" data-id="${i.id}" data-vector="${activeVec}" data-prompt="${esc(p)}">+ ${esc(p)}</button>`).join('')}
     </div>
-  </div>`;
+  </div>` : '';
 
   const groups = Object.keys(VECTOR).map(v => {
     const items = causes.filter(c => c.vector === v);
@@ -1017,11 +1321,11 @@ function tabIshikawa(i) {
         ${esc(c.detail || '')}
         ${renderAttachments(i.id, 'ishikawa', c.id, true)}
         ${renderLinkedCapas(i.id, `ishikawa:${c.id}`, `[${VECTOR[c.vector] || c.vector}] ${c.cause}`)}
-        <div class="chip-row no-print" style="margin-top:7px">
+        ${editable ? `<div class="chip-row no-print" style="margin-top:7px">
           <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="ishikawa:${c.id}" data-type="${c.is_primary ? 'preventive' : 'corrective'}" data-desc="${esc(`[${VECTOR[c.vector] || c.vector}] ${c.cause}${c.detail ? ' — ' + c.detail : ''}`)}">${icon('plus')} CAPA</button>
           <button class="btn btn-ghost btn-sm" data-action="edit-ish" data-ish="${c.id}">${icon('edit')}</button>
           <button class="btn btn-ghost btn-sm" data-action="del-ish" data-ish="${c.id}">${icon('trash')}</button>
-        </div>
+        </div>` : ''}
       </li>`).join('') || '<li class="dim">No causes recorded — click to inspect questions.</li>'}</ul>
     </div>`;
   }).join('');
@@ -1029,7 +1333,7 @@ function tabIshikawa(i) {
   return `
   <div class="section-head">
     <div><h2 class="h3">Ishikawa 6M breakdown</h2><p>Click any rib on the diagram to explore diagnostic questions · ◆ marks a primary contributor</p></div>
-    <button class="btn btn-sm" data-action="add-ish" data-id="${i.id}">${icon('plus')} Add cause</button>
+    ${editable ? `<button class="btn btn-sm" data-action="add-ish" data-id="${i.id}">${icon('plus')} Add cause</button>` : ''}
   </div>
   ${renderFishboneSvg(i, causes)}
   ${drawer}
@@ -1037,6 +1341,7 @@ function tabIshikawa(i) {
 }
 
 function tabFmea(i) {
+  const editable = canEditInv(i);
   const items = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
   const rows = items.map(f => {
     const rpn = rpnOf(f);
@@ -1056,18 +1361,18 @@ function tabFmea(i) {
           <span class="risk-track"><span class="risk-fill" style="width:${pct}%;background:var(--${tone})"></span></span>
         </div>
       </td>
-      <td class="no-print"><div class="chip-row">
+      <td class="no-print">${editable ? `<div class="chip-row">
         <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="fmea:${f.id}" data-type="${rpn >= 100 ? 'preventive' : 'corrective'}" data-desc="${esc(`[FMEA ${f.component} · RPN ${rpn}] Mitigate ${f.failure_mode}`)}">${icon('plus')} CAPA</button>
         <button class="btn btn-ghost btn-sm" data-action="edit-fmea" data-fmea="${f.id}">${icon('edit')}</button>
         <button class="btn btn-ghost btn-sm" data-action="del-fmea" data-fmea="${f.id}">${icon('trash')}</button>
-      </div></td>
+      </div>` : ''}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="9"><div class="empty"><strong>No failure modes assessed</strong>Add FMEA rows to score severity, occurrence and detection.</div></td></tr>`;
 
   return `
   <div class="section-head">
     <div><h2 class="h3">Failure mode &amp; effects analysis</h2><p>RPN = Severity × Occurrence × Detection · ≥100 triggers a corrective action</p></div>
-    <button class="btn btn-sm" data-action="add-fmea" data-id="${i.id}">${icon('plus')} Add failure mode</button>
+    ${editable ? `<button class="btn btn-sm" data-action="add-fmea" data-id="${i.id}">${icon('plus')} Add failure mode</button>` : ''}
   </div>
   <div class="card table-scroll">
     <table class="table table-wide">
@@ -1081,6 +1386,7 @@ function tabFmea(i) {
 }
 
 function tabCapa(i) {
+  const editable = canEditInv(i);
   const items = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
   const highRpn = byInv('fmea_items', i.id).filter(f => rpnOf(f) >= 100);
   const rootWhys = byInv('five_whys_nodes', i.id).filter(n => n.is_root_cause);
@@ -1093,10 +1399,10 @@ function tabCapa(i) {
       <td class="muted">${esc(c.owner || '—')}</td>
       <td class="muted">${fmtDate(c.target_date)}</td>
       <td>${overdue ? chip('Overdue', 'red') : capaChip(c.status)}</td>
-      <td class="no-print"><div class="chip-row">
+      <td class="no-print">${editable ? `<div class="chip-row">
         <button class="btn btn-ghost btn-sm" data-action="edit-capa" data-capa="${c.id}">${icon('edit')}</button>
         <button class="btn btn-ghost btn-sm" data-action="del-capa" data-capa="${c.id}">${icon('trash')}</button>
-      </div></td>
+      </div>` : ''}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="6"><div class="empty"><strong>No actions raised</strong>Add corrective and preventive actions with owners and target dates.</div></td></tr>`;
 
@@ -1113,7 +1419,7 @@ function tabCapa(i) {
   return `
   <div class="section-head">
     <div><h2 class="h3">Corrective &amp; preventive action plan</h2><p>${open} open · ${done} closed out of ${items.length}</p></div>
-    <button class="btn btn-sm" data-action="add-capa" data-id="${i.id}">${icon('plus')} Add action</button>
+    ${editable ? `<button class="btn btn-sm" data-action="add-capa" data-id="${i.id}">${icon('plus')} Add action</button>` : ''}
   </div>
   ${capaGuide}
   <div class="card table-scroll">
@@ -1146,27 +1452,28 @@ function renderVisualTimeline(events) {
 }
 
 function tabTimeline(i) {
+  const editable = canEditInv(i);
   const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
   const rows = events.map(ev => `<tr>
     <td class="mono" style="white-space:nowrap">${esc(fmtDateTimeSec(ev.timestamp))}</td>
     <td>${timelineChip(ev.category)}</td>
     <td><strong>${esc(ev.title)}</strong>${ev.detail ? `<div class="dim" style="font-size:12.5px;margin-top:4px">${esc(ev.detail)}</div>` : ''}${renderAttachments(i.id, 'timeline', ev.id, true)}${renderLinkedCapas(i.id, `timeline:${ev.id}`, `[Timeline ${fmtDateTimeSec(ev.timestamp)}] ${ev.title}`)}</td>
     <td class="muted">${esc(ev.source || '—')}</td>
-    <td class="no-print"><div class="chip-row">
+    <td class="no-print">${editable ? `<div class="chip-row">
       <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="timeline:${ev.id}" data-type="corrective" data-desc="${esc(`[Timeline ${fmtDateTimeSec(ev.timestamp)}] ${ev.title}`)}">${icon('plus')} CAPA</button>
       <button class="btn btn-ghost btn-sm" data-action="edit-timeline" data-tl="${ev.id}">${icon('edit')}</button>
       <button class="btn btn-ghost btn-sm" data-action="del-timeline" data-tl="${ev.id}">${icon('trash')}</button>
-    </div></td>
+    </div>` : ''}</td>
   </tr>`).join('') || `<tr><td colspan="5"><div class="empty"><strong>No timeline events recorded</strong>Add SOE, SCADA alarm, trip, and restoration timestamps to build the incident timeline.</div></td></tr>`;
 
   return `
   <div class="section-head" style="flex-wrap:wrap">
     <div><h2 class="h3">Sequence of events table</h2><p>Log chronological timestamps (UTC) or import from Excel — automatically visualised here and in the Report</p></div>
-    <div class="chip-row no-print">
+    ${editable ? `<div class="chip-row no-print">
       <button class="btn btn-sm" data-action="download-timeline-template">${icon('download')} Excel template</button>
       <button class="btn btn-sm" data-action="import-timeline" data-id="${i.id}">${icon('upload')} Import Excel</button>
       <button class="btn btn-primary btn-sm" data-action="add-timeline" data-id="${i.id}">${icon('plus')} Add event</button>
-    </div>
+    </div>` : ''}
   </div>
   <input type="file" id="timelineImportFile" accept=".xlsx,.xls,.csv" data-inv-id="${i.id}" style="display:none">
   <div class="card table-scroll" style="margin-bottom:28px">
@@ -1356,13 +1663,15 @@ function tabReport(i) {
 let capaFilter = 'open';
 
 function viewCapas() {
-  let list = DB.capa_actions.slice();
+  const allAccessible = filteredCapas();
+  let list = allAccessible.slice();
   if (capaFilter === 'open') list = list.filter(c => ['open', 'inProgress'].includes(c.status));
   else if (capaFilter !== 'all') list = list.filter(c => c.status === capaFilter);
   list.sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
 
   const rows = list.map(c => {
     const inv = invById(c.investigation_id);
+    const editable = inv ? canEditInv(inv) : false;
     const overdue = c.target_date && new Date(c.target_date) < new Date() && !['verified', 'closed'].includes(c.status);
     return `<tr>
       <td>${chip(CAPA_TYPE[c.type] || c.type, c.type === 'preventive' ? 'cyan' : 'accent')}</td>
@@ -1371,14 +1680,14 @@ function viewCapas() {
       <td class="muted">${inv ? `<button class="btn btn-ghost btn-sm" data-goto="#/investigations/${inv.id}/capa"><span class="mono">${esc(inv.document_code)}</span></button>` : '—'}</td>
       <td class="muted">${fmtDate(c.target_date)}</td>
       <td>${overdue ? chip('Overdue', 'red') : capaChip(c.status)}</td>
-      <td><div class="chip-row">
+      <td>${editable ? `<div class="chip-row">
         <button class="btn btn-ghost btn-sm" data-action="edit-capa" data-capa="${c.id}">${icon('edit')}</button>
         <button class="btn btn-ghost btn-sm" data-action="del-capa" data-capa="${c.id}">${icon('trash')}</button>
-      </div></td>
+      </div>` : ''}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="7"><div class="empty"><strong>Nothing here</strong>No actions match this filter.</div></td></tr>`;
 
-  const counts = { open: DB.capa_actions.filter(c => ['open', 'inProgress'].includes(c.status)).length, all: DB.capa_actions.length };
+  const counts = { open: allAccessible.filter(c => ['open', 'inProgress'].includes(c.status)).length, all: allAccessible.length };
   const seg = [['open', `Open (${counts.open})`], ['verified', 'Verified'], ['all', `All (${counts.all})`]]
     .map(([k, l]) => `<button class="${capaFilter === k ? 'on' : ''}" data-capa-filter="${k}">${l}</button>`).join('');
 
@@ -1387,8 +1696,9 @@ function viewCapas() {
     <div>
       <div class="eyebrow">Action Tracking</div>
       <h1 class="display">CAPA Actions</h1>
-      <p class="lede">Every corrective and preventive action across all investigations, with owner accountability and verification evidence.</p>
+      <p class="lede">Corrective and preventive actions across your accessible sites and investigations.</p>
     </div>
+    <div class="page-actions">${siteFilterSelect()}</div>
   </div>
   <div class="toolbar"><div class="seg" id="capaSeg">${seg}</div></div>
   <div class="card table-scroll">
@@ -1397,6 +1707,89 @@ function viewCapas() {
       <tbody>${rows}</tbody>
     </table>
   </div>`;
+}
+
+/* ---------- view: Sites & Users Admin ---------- */
+
+function viewAdmin() {
+  const me = currentUser();
+  const isGlobal = Boolean(me && me.is_global_admin);
+  const sites = (DB.sites || []).filter(s => isGlobal || canAdminSite(me, s.id));
+  const users = (DB.app_users || []).slice();
+
+  const siteRows = sites.map(s => {
+    const rcaCount = (DB.investigations || []).filter(i => i.site_id === s.id).length;
+    return `<tr>
+      <td><span class="chip chip-slate mono">${esc(s.code)}</span></td>
+      <td><strong>${esc(s.name)}</strong></td>
+      <td class="muted">${esc(s.region || '—')}</td>
+      <td class="muted">${esc(s.voltage_class || '—')}</td>
+      <td class="num">${rcaCount}</td>
+      <td><div class="chip-row">
+        <button class="btn btn-ghost btn-sm" data-action="edit-site" data-site="${s.id}">${icon('edit')}</button>
+        ${isGlobal && sites.length > 1 ? `<button class="btn btn-ghost btn-sm" data-action="del-site" data-site="${s.id}">${icon('trash')}</button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6"><div class="empty"><strong>No sites configured</strong>Add a site to organize investigations and user access.</div></td></tr>`;
+
+  const userRows = users.map(u => {
+    const siteBadges = u.is_global_admin
+      ? chip('Global Admin (All Sites)', 'accent')
+      : Object.entries(u.site_roles || {})
+          .filter(([, role]) => role)
+          .map(([sid, role]) => {
+            const st = siteById(sid);
+            const tone = role === 'admin' ? 'accent' : role === 'editor' ? 'cyan' : 'slate';
+            return chip(`${st ? st.code : sid}: ${role}`, tone);
+          }).join(' ') || '<span class="dim">No site roles</span>';
+    const rcaCount = Array.isArray(u.assigned_rcas) ? u.assigned_rcas.length : 0;
+    const canDelete = u.id !== 'usr-demo' && (!me || u.id !== me.id);
+    return `<tr>
+      <td><strong>${esc(u.full_name || u.username)}</strong><div class="dim mono" style="font-size:12px">@${esc(u.username)}</div></td>
+      <td class="muted">${esc(u.role_title || '—')}</td>
+      <td><div class="chip-row">${siteBadges}</div></td>
+      <td class="muted">${rcaCount ? chip(`${rcaCount} RCA${rcaCount === 1 ? '' : 's'}`, 'amber') : '—'}</td>
+      <td><div class="chip-row">
+        <button class="btn btn-ghost btn-sm" data-action="edit-user" data-user="${u.id}">${icon('edit')}</button>
+        ${canDelete ? `<button class="btn btn-ghost btn-sm" data-action="del-user" data-user="${u.id}">${icon('trash')}</button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="page-head">
+    <div>
+      <div class="eyebrow">Administration</div>
+      <h1 class="display">Sites &amp; Users</h1>
+      <p class="lede">Manage operational sites, assign per-site Admin / Editor / Viewer roles, and grant access to specific RCAs.</p>
+    </div>
+  </div>
+
+  <section class="section">
+    <div class="section-head">
+      <div><h2 class="h3">Operational Sites (${sites.length})</h2><p>Each investigation belongs to a site; site roles control view and edit permissions</p></div>
+      ${isGlobal ? `<button class="btn btn-primary btn-sm" data-action="add-site">${icon('plus')} Add site</button>` : ''}
+    </div>
+    <div class="card table-scroll">
+      <table class="table table-wide">
+        <thead><tr><th>Code</th><th>Site / Facility Name</th><th>Region</th><th>Voltage Class</th><th class="num">RCAs</th><th></th></tr></thead>
+        <tbody>${siteRows}</tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section" style="margin-bottom:0">
+    <div class="section-head">
+      <div><h2 class="h3">User Accounts (${users.length})</h2><p>Assign multiple sites with independent roles and/or specific individual RCAs</p></div>
+      <button class="btn btn-primary btn-sm" data-action="add-user">${icon('plus')} Add user</button>
+    </div>
+    <div class="card table-scroll">
+      <table class="table table-wide">
+        <thead><tr><th>User</th><th>Title</th><th>Site Roles</th><th>Assigned RCAs</th><th></th></tr></thead>
+        <tbody>${userRows}</tbody>
+      </table>
+    </div>
+  </section>`;
 }
 
 /* ---------- modal plumbing ---------- */
@@ -1546,10 +1939,15 @@ const optsFrom = (obj) => Object.entries(obj).map(([v, m]) => [v, m.label || m])
 
 function rcaForm(i) {
   const isNew = !i;
+  const editableSites = editableSitesForUser(currentUser());
+  const siteOpts = (editableSites.length ? editableSites : (DB.sites || [])).map(s => [s.id, `${s.code} — ${s.name}`]);
+  const defaultSiteId = (i && i.site_id) || (activeSiteId !== 'all' && siteOpts.some(([id]) => id === activeSiteId) ? activeSiteId : (siteOpts[0] ? siteOpts[0][0] : 'site-osp1'));
+  const defaultSite = siteById(defaultSiteId);
   const d = i || {
-    document_code: `RCA-${new Date().getFullYear()}-OSP1-${String(DB.investigations.length + 2).padStart(3, '0')}`,
-    title: '', facility_name: 'North Sea Offshore Substation OSP-01', asset_category: 'substationOsp',
-    equipment_tag: '', voltage_class: '', severity: 'major', fault_category: 'electrical', status: 'inProgress',
+    site_id: defaultSiteId,
+    document_code: `RCA-${new Date().getFullYear()}-${(defaultSite?.code || 'OSP1').replace(/[^A-Z0-9]/gi, '')}-${String(DB.investigations.length + 2).padStart(3, '0')}`,
+    title: '', facility_name: defaultSite ? defaultSite.name : 'North Sea Offshore Substation OSP-01', asset_category: 'substationOsp',
+    equipment_tag: '', voltage_class: defaultSite ? defaultSite.voltage_class : '', severity: 'major', fault_category: 'electrical', status: 'inProgress',
     incident_date: new Date().toISOString(), investigator_name: '', investigator_role: '', problem_statement: '', executive_summary: '',
     root_cause_conclusion: '',
   };
@@ -1560,8 +1958,8 @@ function rcaForm(i) {
     width: 'wide',
     body: `
       <div class="form-grid">
+        ${field('Operational Site', select('site_id', siteOpts, d.site_id || defaultSiteId))}
         ${field('Document ID', `<input class="input" name="document_code" value="${esc(d.document_code)}" required>`)}
-        ${field('Severity', select('severity', optsFrom(SEVERITY), d.severity))}
       </div>
       <div class="form-grid">
         <div class="field col-span-2">
@@ -1570,26 +1968,24 @@ function rcaForm(i) {
         </div>
       </div>
       <div class="form-grid">
-        ${field('Facility / Site', `<input class="input" name="facility_name" value="${esc(d.facility_name)}">`)}
+        ${field('Facility / Substation Name', `<input class="input" name="facility_name" value="${esc(d.facility_name)}">`)}
         ${field('Equipment tag', `<input class="input" name="equipment_tag" value="${esc(d.equipment_tag)}" placeholder="OSP1-220KV-GIS-BAY04">`)}
+      </div>
+      <div class="form-grid">
+        ${field('Severity', select('severity', optsFrom(SEVERITY), d.severity))}
+        ${field('Status', select('status', optsFrom(STATUS), d.status))}
       </div>
       <div class="form-grid">
         ${field('Asset category', select('asset_category', Object.entries(ASSET), d.asset_category))}
         ${field('Fault category', select('fault_category', Object.entries(FAULT), d.fault_category))}
       </div>
       <div class="form-grid">
-        ${field('Status', select('status', optsFrom(STATUS), d.status))}
         ${field('System / voltage class', `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="220 kV / IEC 61850">`)}
-      </div>
-      <div class="form-grid">
         ${field('Incident date', `<input class="input" type="date" name="incident_date" value="${toDateInput(d.incident_date)}">`)}
-        ${field('Investigator name', `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="Henrik Lindqvist">`)}
       </div>
       <div class="form-grid">
-        <div class="field col-span-2">
-          <label>Investigator role</label>
-          <input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="Lead HV Operations Engineer">
-        </div>
+        ${field('Investigator name', `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="Henrik Lindqvist">`)}
+        ${field('Investigator role', `<input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="Lead HV Operations Engineer">`)}
       </div>
       <div class="form-grid">
         <div class="field col-span-2">
@@ -1611,6 +2007,86 @@ function rcaForm(i) {
       </div>`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn btn-primary" data-action="save-rca" data-id="${i ? i.id : ''}">${icon('check')} ${isNew ? 'Create RCA' : 'Save changes'}</button>`,
+  };
+}
+
+function siteForm(site) {
+  const isNew = !site;
+  const d = site || { code: '', name: '', region: '', voltage_class: '' };
+  return {
+    eyebrow: isNew ? 'New Site' : 'Editing Site',
+    title: isNew ? 'Add Operational Site' : `Edit ${d.code}`,
+    body: `
+      <div class="form-grid">
+        ${field('Site Code', `<input class="input mono" name="site_code" value="${esc(d.code)}" placeholder="OSP-02" required>`)}
+        ${field('Voltage Class', `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="220 kV / 66 kV">`)}
+      </div>
+      ${field('Site / Facility Name', `<input class="input" name="site_name" value="${esc(d.name)}" placeholder="North Sea Offshore Substation OSP-02" required>`)}
+      ${field('Region / Location', `<input class="input" name="region" value="${esc(d.region)}" placeholder="North Sea">`)}`,
+    foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn btn-primary" data-action="save-site" data-site="${site ? site.id : ''}">${icon('check')} ${isNew ? 'Create site' : 'Save changes'}</button>`,
+  };
+}
+
+function userForm(user) {
+  const isNew = !user;
+  const me = currentUser();
+  const isGlobalMe = Boolean(me && me.is_global_admin);
+  const d = user || {
+    username: '',
+    password: '',
+    full_name: '',
+    role_title: '',
+    is_global_admin: 0,
+    site_roles: {},
+    assigned_rcas: [],
+  };
+  const roleOpts = [['', 'No access'], ['viewer', 'Viewer (read-only)'], ['editor', 'Editor (create & edit)'], ['admin', 'Admin (site & users)']];
+  const manageableSites = (DB.sites || []).filter(s => isGlobalMe || canAdminSite(me, s.id));
+  const siteRoleRows = manageableSites.map(s => {
+    const cur = (d.site_roles && d.site_roles[s.id]) || '';
+    return `<div class="site-role-row">
+      <div><strong>${esc(s.code)}</strong> <span class="muted">${esc(s.name)}</span></div>
+      ${select(`site_role_${s.id}`, roleOpts, cur)}
+    </div>`;
+  }).join('');
+
+  const allInvs = (DB.investigations || []).filter(inv => isGlobalMe || canAdminSite(me, inv.site_id));
+  const assignedSet = new Set(Array.isArray(d.assigned_rcas) ? d.assigned_rcas : []);
+  const rcaRows = allInvs.map(inv => {
+    const st = siteById(inv.site_id);
+    return `<label class="rca-assign-item">
+      <input type="checkbox" name="assigned_rca" value="${esc(inv.id)}" ${assignedSet.has(inv.id) ? 'checked' : ''}>
+      <span class="mono" style="font-size:12px">${esc(inv.document_code)}</span>
+      ${st ? `<span class="chip chip-slate" style="padding:1px 5px;font-size:10.5px">${esc(st.code)}</span>` : ''}
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(inv.title)}</span>
+    </label>`;
+  }).join('') || '<div class="dim" style="font-size:12.5px">No investigations available to assign.</div>';
+
+  return {
+    eyebrow: isNew ? 'New User' : 'Editing User',
+    title: isNew ? 'Add User Account' : `Edit @${d.username}`,
+    width: 'wide',
+    body: `
+      <div class="form-grid">
+        ${field('Username', `<input class="input mono" name="username" value="${esc(d.username)}" placeholder="j.smith" required>`)}
+        ${field('Password', `<input class="input" type="text" name="password" value="${esc(d.password)}" placeholder="Password" required>`)}
+      </div>
+      <div class="form-grid">
+        ${field('Full Name', `<input class="input" name="full_name" value="${esc(d.full_name)}" placeholder="Jane Smith">`)}
+        ${field('Job Title / Role', `<input class="input" name="role_title" value="${esc(d.role_title)}" placeholder="HV Protection Engineer">`)}
+      </div>
+      ${isGlobalMe ? field('Global Administrator', select('is_global_admin', [[0, 'No — scoped to assigned sites & RCAs'], [1, 'Yes — Global Admin across all sites']], d.is_global_admin ? 1 : 0)) : ''}
+      <div class="field" style="margin-top:8px">
+        <label>Site Access &amp; Roles</label>
+        <div class="site-role-grid">${siteRoleRows || '<div class="dim">No sites configured.</div>'}</div>
+      </div>
+      <div class="field" style="margin-top:8px">
+        <label>Direct RCA Assignments (optional — grants access to specific RCAs across sites)</label>
+        <div class="rca-assign-list">${rcaRows}</div>
+      </div>`,
+    foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn btn-primary" data-action="save-user" data-user="${user ? user.id : ''}">${icon('check')} ${isNew ? 'Create user' : 'Save changes'}</button>`,
   };
 }
 
@@ -1751,6 +2227,8 @@ function fmeaForm(invId, item) {
 }
 
 function capaForm(invId, item, preset) {
+  const inv = invById(invId);
+  const editable = inv ? canEditInv(inv) : false;
   const d = item || {
     type: (preset && preset.type) || 'corrective',
     description: (preset && preset.description) || '',
@@ -1762,7 +2240,7 @@ function capaForm(invId, item, preset) {
   };
   const roots = byInv('five_whys_nodes', invId).filter(n => n.is_root_cause);
   return {
-    eyebrow: 'CAPA plan', title: item ? 'Edit action' : 'Add action', width: 'wide',
+    eyebrow: 'CAPA plan', title: !editable ? 'View action (read-only)' : (item ? 'Edit action' : 'Add action'), width: 'wide',
     body: `
       <input type="hidden" name="source_ref" value="${esc(d.source_ref || '')}">
       ${roots.length ? `<div class="prompt-box">
@@ -1779,8 +2257,10 @@ function capaForm(invId, item, preset) {
         ${field('Target date', `<input class="input" type="date" name="target_date" value="${toDateInput(d.target_date)}">`)}
       </div>
       ${field('Verification notes', `<textarea class="textarea" name="verification_notes">${esc(d.verification_notes)}</textarea>`)}`,
-    foot: `<button class="btn" data-action="close-modal">Cancel</button>
-           <button class="btn btn-primary" data-action="save-capa" data-id="${invId}" data-capa="${item ? item.id : ''}">${icon('check')} Save</button>`,
+    foot: editable
+      ? `<button class="btn" data-action="close-modal">Cancel</button>
+         <button class="btn btn-primary" data-action="save-capa" data-id="${invId}" data-capa="${item ? item.id : ''}">${icon('check')} Save</button>`
+      : `<button class="btn btn-primary" data-action="close-modal">Close</button>`,
   };
 }
 
@@ -2125,14 +2605,173 @@ function saveFmeaFromModal(el) {
 
 /* ---------- actions ---------- */
 
+function requireEdit(invId) {
+  const inv = invById(invId);
+  if (!inv || !canEditInv(inv)) {
+    toast('Read-only access: Editor or Admin role required');
+    return false;
+  }
+  return true;
+}
+
 const ACTIONS = {
   'close-modal': closeModal,
 
-  'new-rca': () => { const f = rcaForm(null); openModal(f); },
-  'edit-rca': (el) => { const i = invById(el.dataset.id); if (i) openModal(rcaForm(i)); },
+  'login': () => {
+    const form = document.getElementById('loginForm');
+    if (!form) return;
+    const uname = (form.querySelector('[name="login_username"]')?.value || '').trim().toLowerCase();
+    const pass = (form.querySelector('[name="login_password"]')?.value || '');
+    const errEl = document.getElementById('loginError');
+    const user = (DB.app_users || []).find(u => String(u.username || '').toLowerCase() === uname && String(u.password || '') === pass);
+    if (!user) {
+      if (errEl) errEl.textContent = 'Invalid username or password. Try demo / demo.';
+      return;
+    }
+    setSession(user.id);
+    activeSiteId = 'all';
+    if (!location.hash || location.hash === '#/') go('#/');
+    render();
+    toast(`Signed in as ${user.full_name || user.username}`);
+  },
+  'quick-login-fill': (el) => {
+    const form = document.getElementById('loginForm');
+    if (!form) return;
+    const uEl = form.querySelector('[name="login_username"]');
+    const pEl = form.querySelector('[name="login_password"]');
+    if (uEl) uEl.value = el.dataset.user || 'demo';
+    if (pEl) pEl.value = el.dataset.pass || 'demo';
+    const errEl = document.getElementById('loginError');
+    if (errEl) errEl.textContent = '';
+  },
+  'logout': () => {
+    clearSession();
+    activeSiteId = 'all';
+    closeModal();
+    go('#/');
+    render();
+    toast('Signed out');
+  },
+
+  'add-site': () => {
+    if (!currentUser()?.is_global_admin) { toast('Global Admin access required'); return; }
+    openModal(siteForm(null));
+  },
+  'edit-site': (el) => {
+    const s = siteById(el.dataset.site);
+    if (!s || !canAdminSite(currentUser(), s.id)) { toast('Site Admin access required'); return; }
+    openModal(siteForm(s));
+  },
+  'save-site': (el) => {
+    const sid = el.dataset.site;
+    if (sid && !canAdminSite(currentUser(), sid)) { toast('Site Admin access required'); return; }
+    if (!sid && !currentUser()?.is_global_admin) { toast('Global Admin access required'); return; }
+    const v = collect(['site_code', 'site_name', 'region', 'voltage_class']);
+    if (!v.site_code || !v.site_name) { toast('Site code and name are required'); return; }
+    const payload = { code: v.site_code, name: v.site_name, region: v.region, voltage_class: v.voltage_class };
+    let savedSite;
+    if (sid) {
+      savedSite = siteById(sid);
+      Object.assign(savedSite, payload);
+    } else {
+      savedSite = Object.assign({ id: uid('site') }, payload);
+      DB.sites.push(savedSite);
+    }
+    save(); sbUpsert('sites', savedSite); closeModal(); render(); toast('Site saved');
+  },
+  'del-site': (el) => {
+    if (!currentUser()?.is_global_admin) { toast('Global Admin access required'); return; }
+    const s = siteById(el.dataset.site);
+    if (!s) return;
+    if (DB.sites.length <= 1) { toast('At least one site must remain'); return; }
+    const inUse = (DB.investigations || []).some(i => i.site_id === s.id);
+    if (inUse) { toast('Reassign or delete investigations at this site first'); return; }
+    confirmDo(`Delete site ${s.code} — ${s.name}?`, () => {
+      DB.sites = DB.sites.filter(x => x.id !== s.id);
+      DB.app_users.forEach(u => { if (u.site_roles) delete u.site_roles[s.id]; });
+      save(); sbDelete('sites', s.id); sbUpsert('app_users', DB.app_users); render(); toast('Site deleted');
+    });
+  },
+
+  'add-user': () => {
+    if (!canManageAnySite(currentUser())) { toast('Admin access required'); return; }
+    openModal(userForm(null));
+  },
+  'edit-user': (el) => {
+    if (!canManageAnySite(currentUser())) { toast('Admin access required'); return; }
+    const u = (DB.app_users || []).find(x => x.id === el.dataset.user);
+    if (u) openModal(userForm(u));
+  },
+  'save-user': (el) => {
+    const me = currentUser();
+    if (!canManageAnySite(me)) { toast('Admin access required'); return; }
+    const uidVal = el.dataset.user;
+    const v = collect(['username', 'password', 'full_name', 'role_title', 'is_global_admin']);
+    if (!v.username || !v.password) { toast('Username and password are required'); return; }
+    const dup = (DB.app_users || []).find(x => x.username.toLowerCase() === v.username.toLowerCase() && x.id !== uidVal);
+    if (dup) { toast('That username is already in use'); return; }
+
+    const existing = uidVal ? DB.app_users.find(x => x.id === uidVal) : null;
+    const site_roles = Object.assign({}, existing ? existing.site_roles : {});
+    const scope = document.getElementById('modalHost');
+    (DB.sites || []).forEach(s => {
+      if (me.is_global_admin || canAdminSite(me, s.id)) {
+        const inp = scope.querySelector(`input[name="site_role_${s.id}"]`);
+        if (inp) {
+          if (inp.value) site_roles[s.id] = inp.value;
+          else delete site_roles[s.id];
+        }
+      }
+    });
+
+    const manageableInvIds = new Set((DB.investigations || []).filter(i => me.is_global_admin || canAdminSite(me, i.site_id)).map(i => i.id));
+    const keptOtherRcas = (existing && Array.isArray(existing.assigned_rcas) ? existing.assigned_rcas : []).filter(id => !manageableInvIds.has(id));
+    const checkedRcas = Array.from(scope.querySelectorAll('input[name="assigned_rca"]:checked')).map(cb => cb.value);
+    const assigned_rcas = Array.from(new Set([...keptOtherRcas, ...checkedRcas]));
+
+    const payload = {
+      username: v.username,
+      password: v.password,
+      full_name: v.full_name || v.username,
+      role_title: v.role_title,
+      is_global_admin: me.is_global_admin ? (Number(v.is_global_admin) ? 1 : 0) : (existing ? existing.is_global_admin : 0),
+      site_roles,
+      assigned_rcas,
+    };
+
+    let savedUser;
+    if (existing) {
+      Object.assign(existing, payload);
+      savedUser = existing;
+    } else {
+      savedUser = Object.assign({ id: uid('usr') }, payload);
+      DB.app_users.push(savedUser);
+    }
+    save(); sbUpsert('app_users', savedUser); closeModal(); render(); toast('User saved');
+  },
+  'del-user': (el) => {
+    const me = currentUser();
+    if (!canManageAnySite(me)) { toast('Admin access required'); return; }
+    const u = (DB.app_users || []).find(x => x.id === el.dataset.user);
+    if (!u) return;
+    if (u.id === 'usr-demo' || (me && u.id === me.id)) { toast('Cannot delete this account'); return; }
+    confirmDo(`Delete user @${u.username}?`, () => {
+      DB.app_users = DB.app_users.filter(x => x.id !== u.id);
+      save(); sbDelete('app_users', u.id); render(); toast('User deleted');
+    });
+  },
+
+  'new-rca': () => {
+    if (!canCreateRca(currentUser())) { toast('Editor or Admin role required to create RCAs'); return; }
+    openModal(rcaForm(null));
+  },
+  'edit-rca': (el) => {
+    const i = invById(el.dataset.id);
+    if (i && requireEdit(i.id)) openModal(rcaForm(i));
+  },
   'del-rca': (el) => {
     const i = invById(el.dataset.id);
-    if (!i) return;
+    if (!i || !requireEdit(i.id)) return;
     confirmDo(`Delete ${i.document_code} and all of its timeline events, why levels, causes, failure modes, actions and attachments?`, () => {
       ['timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions', 'attachments'].forEach(c => {
         DB[c] = (DB[c] || []).filter(r => r.investigation_id !== i.id);
@@ -2142,14 +2781,16 @@ const ACTIONS = {
     });
   },
 
-  'add-timeline': (el) => openModal(timelineForm(el.dataset.id, null)),
-  'edit-timeline': (el) => { const ev = DB.timeline_events.find(x => x.id === el.dataset.tl); if (ev) openModal(timelineForm(ev.investigation_id, ev)); },
+  'add-timeline': (el) => { if (requireEdit(el.dataset.id)) openModal(timelineForm(el.dataset.id, null)); },
+  'edit-timeline': (el) => { const ev = DB.timeline_events.find(x => x.id === el.dataset.tl); if (ev && requireEdit(ev.investigation_id)) openModal(timelineForm(ev.investigation_id, ev)); },
   'save-timeline': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const savedRow = saveTimelineFromModal(el);
     if (!savedRow) return;
     closeModal(); render(); toast('Timeline event saved');
   },
   'save-timeline-capa': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const savedRow = saveTimelineFromModal(el);
     if (!savedRow) return;
     closeModal(); render();
@@ -2159,21 +2800,26 @@ const ACTIONS = {
       source_ref: `timeline:${savedRow.id}`,
     }));
   },
-  'del-timeline': (el) => confirmDo('Delete this timeline event?', () => {
+  'del-timeline': (el) => {
     const ev = DB.timeline_events.find(x => x.id === el.dataset.tl);
-    DB.timeline_events = DB.timeline_events.filter(x => x.id !== el.dataset.tl);
-    if (ev) touchInv(ev.investigation_id);
-    save(); sbDelete('timeline_events', el.dataset.tl); if (ev) sbTouchInv(ev.investigation_id);
-    render(); toast('Deleted');
-  }),
+    if (!ev || !requireEdit(ev.investigation_id)) return;
+    confirmDo('Delete this timeline event?', () => {
+      DB.timeline_events = DB.timeline_events.filter(x => x.id !== el.dataset.tl);
+      touchInv(ev.investigation_id);
+      save(); sbDelete('timeline_events', el.dataset.tl); sbTouchInv(ev.investigation_id);
+      render(); toast('Deleted');
+    });
+  },
   'download-timeline-template': () => downloadTimelineTemplate(),
   'import-timeline': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const inp = document.getElementById('timelineImportFile');
     if (inp) { inp.dataset.invId = el.dataset.id; inp.value = ''; inp.click(); }
   },
   'confirm-timeline-import': async () => {
     if (!pendingTimelineImport) return;
     const { invId, rows } = pendingTimelineImport;
+    if (!requireEdit(invId)) return;
     const mode = document.querySelector('#modalHost [name="import_mode"]')?.value || 'append';
     if (mode === 'replace') {
       DB.timeline_events = DB.timeline_events.filter(r => r.investigation_id !== invId);
@@ -2189,8 +2835,14 @@ const ACTIONS = {
 
   'save-rca': (el) => {
     const id = el.dataset.id;
-    const v = collect(['document_code','title','facility_name','equipment_tag','asset_category','fault_category','voltage_class','severity','status','investigator_name','investigator_role','problem_statement','executive_summary','root_cause_conclusion']);
+    if (id && !requireEdit(id)) return;
+    if (!id && !canCreateRca(currentUser())) { toast('Editor or Admin role required'); return; }
+    const v = collect(['site_id','document_code','title','facility_name','equipment_tag','asset_category','fault_category','voltage_class','severity','status','investigator_name','investigator_role','problem_statement','executive_summary','root_cause_conclusion']);
     if (!v.title) { toast('A title is required'); return; }
+    if (v.site_id && !v.facility_name) {
+      const s = siteById(v.site_id);
+      if (s) v.facility_name = s.name;
+    }
     v.incident_date = fromDateInput(document.querySelector('[name="incident_date"]').value);
     if (id) {
       const i = invById(id);
@@ -2204,17 +2856,19 @@ const ACTIONS = {
     }
   },
 
-  'add-why': (el) => openModal(whyForm(el.dataset.id, null, el.dataset.parent || null, el.dataset.level || 1)),
+  'add-why': (el) => { if (requireEdit(el.dataset.id)) openModal(whyForm(el.dataset.id, null, el.dataset.parent || null, el.dataset.level || 1)); },
   'edit-why': (el) => {
     const n = DB.five_whys_nodes.find(x => x.id === el.dataset.why);
-    if (n) openModal(whyForm(n.investigation_id, n, n.parent_id, n.level));
+    if (n && requireEdit(n.investigation_id)) openModal(whyForm(n.investigation_id, n, n.parent_id, n.level));
   },
   'save-why': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const savedNode = saveWhyFromModal(el);
     if (!savedNode) return;
     closeModal(); render(); toast('Why level saved');
   },
   'save-why-capa': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const savedNode = saveWhyFromModal(el);
     if (!savedNode) return;
     closeModal(); render();
@@ -2225,26 +2879,29 @@ const ACTIONS = {
     }));
   },
   'del-why': (el) => {
+    const first = DB.five_whys_nodes.find(n => n.id === el.dataset.why);
+    if (!first || !requireEdit(first.investigation_id)) return;
     const ids = [el.dataset.why];
     for (let k = 0; k < ids.length; k++) DB.five_whys_nodes.filter(n => n.parent_id === ids[k]).forEach(c => ids.push(c.id));
-    const first = DB.five_whys_nodes.find(n => n.id === el.dataset.why);
     confirmDo(`Delete this why level and ${ids.length - 1} nested branch(es)?`, () => {
       DB.five_whys_nodes = DB.five_whys_nodes.filter(n => !ids.includes(n.id));
-      if (first) touchInv(first.investigation_id);
-      save(); ids.forEach(wid => sbDelete('five_whys_nodes', wid)); if (first) sbTouchInv(first.investigation_id);
+      touchInv(first.investigation_id);
+      save(); ids.forEach(wid => sbDelete('five_whys_nodes', wid)); sbTouchInv(first.investigation_id);
       render(); toast('Deleted');
     });
   },
 
-  'add-ish': (el) => openModal(ishForm(el.dataset.id, null, el.dataset.vector || null, null)),
-  'add-ish-prompt': (el) => openModal(ishForm(el.dataset.id, null, el.dataset.vector || null, el.dataset.prompt || null)),
-  'edit-ish': (el) => { const c = DB.ishikawa_causes.find(x => x.id === el.dataset.ish); if (c) openModal(ishForm(c.investigation_id, c)); },
+  'add-ish': (el) => { if (requireEdit(el.dataset.id)) openModal(ishForm(el.dataset.id, null, el.dataset.vector || null, null)); },
+  'add-ish-prompt': (el) => { if (requireEdit(el.dataset.id)) openModal(ishForm(el.dataset.id, null, el.dataset.vector || null, el.dataset.prompt || null)); },
+  'edit-ish': (el) => { const c = DB.ishikawa_causes.find(x => x.id === el.dataset.ish); if (c && requireEdit(c.investigation_id)) openModal(ishForm(c.investigation_id, c)); },
   'save-ish': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const savedIsh = saveIshFromModal(el);
     if (!savedIsh) return;
     closeModal(); render(); toast('Cause saved');
   },
   'save-ish-capa': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const savedIsh = saveIshFromModal(el);
     if (!savedIsh) return;
     closeModal(); render();
@@ -2254,22 +2911,27 @@ const ACTIONS = {
       source_ref: `ishikawa:${savedIsh.id}`,
     }));
   },
-  'del-ish': (el) => confirmDo('Delete this cause?', () => {
+  'del-ish': (el) => {
     const c = DB.ishikawa_causes.find(x => x.id === el.dataset.ish);
-    DB.ishikawa_causes = DB.ishikawa_causes.filter(x => x.id !== el.dataset.ish);
-    if (c) touchInv(c.investigation_id);
-    save(); sbDelete('ishikawa_causes', el.dataset.ish); if (c) sbTouchInv(c.investigation_id);
-    render(); toast('Deleted');
-  }),
+    if (!c || !requireEdit(c.investigation_id)) return;
+    confirmDo('Delete this cause?', () => {
+      DB.ishikawa_causes = DB.ishikawa_causes.filter(x => x.id !== el.dataset.ish);
+      touchInv(c.investigation_id);
+      save(); sbDelete('ishikawa_causes', el.dataset.ish); sbTouchInv(c.investigation_id);
+      render(); toast('Deleted');
+    });
+  },
 
-  'add-fmea': (el) => openModal(fmeaForm(el.dataset.id, null)),
-  'edit-fmea': (el) => { const f = DB.fmea_items.find(x => x.id === el.dataset.fmea); if (f) openModal(fmeaForm(f.investigation_id, f)); },
+  'add-fmea': (el) => { if (requireEdit(el.dataset.id)) openModal(fmeaForm(el.dataset.id, null)); },
+  'edit-fmea': (el) => { const f = DB.fmea_items.find(x => x.id === el.dataset.fmea); if (f && requireEdit(f.investigation_id)) openModal(fmeaForm(f.investigation_id, f)); },
   'save-fmea': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const savedFmea = saveFmeaFromModal(el);
     if (!savedFmea) return;
     closeModal(); render(); toast('Failure mode saved');
   },
   'save-fmea-capa': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const savedFmea = saveFmeaFromModal(el);
     if (!savedFmea) return;
     const rpn = savedFmea.severity * savedFmea.occurrence * savedFmea.detection;
@@ -2280,21 +2942,28 @@ const ACTIONS = {
       source_ref: `fmea:${savedFmea.id}`,
     }));
   },
-  'del-fmea': (el) => confirmDo('Delete this failure mode?', () => {
+  'del-fmea': (el) => {
     const f = DB.fmea_items.find(x => x.id === el.dataset.fmea);
-    DB.fmea_items = DB.fmea_items.filter(x => x.id !== el.dataset.fmea);
-    if (f) touchInv(f.investigation_id);
-    save(); sbDelete('fmea_items', el.dataset.fmea); if (f) sbTouchInv(f.investigation_id);
-    render(); toast('Deleted');
-  }),
+    if (!f || !requireEdit(f.investigation_id)) return;
+    confirmDo('Delete this failure mode?', () => {
+      DB.fmea_items = DB.fmea_items.filter(x => x.id !== el.dataset.fmea);
+      touchInv(f.investigation_id);
+      save(); sbDelete('fmea_items', el.dataset.fmea); sbTouchInv(f.investigation_id);
+      render(); toast('Deleted');
+    });
+  },
 
-  'add-capa': (el) => openModal(capaForm(el.dataset.id, null, {
-    type: el.dataset.type || 'corrective',
-    description: el.dataset.desc || '',
-    source_ref: el.dataset.ref || '',
-  })),
-  'edit-capa': (el) => { const c = DB.capa_actions.find(x => x.id === el.dataset.capa); if (c) openModal(capaForm(c.investigation_id, c)); },
+  'add-capa': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
+    openModal(capaForm(el.dataset.id, null, {
+      type: el.dataset.type || 'corrective',
+      description: el.dataset.desc || '',
+      source_ref: el.dataset.ref || '',
+    }));
+  },
+  'edit-capa': (el) => { const c = DB.capa_actions.find(x => x.id === el.dataset.capa); if (c && canAccessInv(currentUser(), invById(c.investigation_id))) openModal(capaForm(c.investigation_id, c)); },
   'save-capa': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const v = collect(['type','description','owner','status','verification_notes','source_ref']);
     if (!v.description) { toast('An action description is required'); return; }
     v.target_date = fromDateInput(document.querySelector('[name="target_date"]').value);
@@ -2309,16 +2978,20 @@ const ACTIONS = {
     touchInv(el.dataset.id); save(); sbUpsert('capa_actions', savedCapa); sbTouchInv(el.dataset.id);
     closeModal(); render(); toast('Action saved');
   },
-  'del-capa': (el) => confirmDo('Delete this action?', () => {
+  'del-capa': (el) => {
     const c = DB.capa_actions.find(x => x.id === el.dataset.capa);
-    DB.capa_actions = DB.capa_actions.filter(x => x.id !== el.dataset.capa);
-    if (c) touchInv(c.investigation_id);
-    save(); sbDelete('capa_actions', el.dataset.capa); if (c) sbTouchInv(c.investigation_id);
-    render(); toast('Deleted');
-  }),
+    if (!c || !requireEdit(c.investigation_id)) return;
+    confirmDo('Delete this action?', () => {
+      DB.capa_actions = DB.capa_actions.filter(x => x.id !== el.dataset.capa);
+      touchInv(c.investigation_id);
+      save(); sbDelete('capa_actions', el.dataset.capa); sbTouchInv(c.investigation_id);
+      render(); toast('Deleted');
+    });
+  },
 
-  'add-attachment': (el) => openModal(attachmentModal(el.dataset.id, el.dataset.area || 'overview', el.dataset.record || el.dataset.id)),
+  'add-attachment': (el) => { if (requireEdit(el.dataset.id)) openModal(attachmentModal(el.dataset.id, el.dataset.area || 'overview', el.dataset.record || el.dataset.id)); },
   'save-attachment': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
     const inp = document.getElementById('attFileInput');
     const file = inp && inp.files && inp.files[0];
     if (!file) { toast('Please select a file'); return; }
@@ -2350,13 +3023,16 @@ const ACTIONS = {
     const att = (DB.attachments || []).find(x => x.id === el.dataset.att);
     if (att) openModal(previewAttachmentModal(att));
   },
-  'del-attachment': (el) => confirmDo('Remove this attachment?', () => {
+  'del-attachment': (el) => {
     const att = (DB.attachments || []).find(x => x.id === el.dataset.att);
-    DB.attachments = (DB.attachments || []).filter(x => x.id !== el.dataset.att);
-    if (att) touchInv(att.investigation_id);
-    save(); sbDelete('attachments', el.dataset.att); if (att) sbTouchInv(att.investigation_id);
-    render(); toast('Attachment removed');
-  }),
+    if (!att || !requireEdit(att.investigation_id)) return;
+    confirmDo('Remove this attachment?', () => {
+      DB.attachments = (DB.attachments || []).filter(x => x.id !== el.dataset.att);
+      touchInv(att.investigation_id);
+      save(); sbDelete('attachments', el.dataset.att); sbTouchInv(att.investigation_id);
+      render(); toast('Attachment removed');
+    });
+  },
 
   'print': () => window.print(),
   'print-dashboard': () => window.print(),
@@ -2378,7 +3054,7 @@ const ACTIONS = {
   },
   'import-json': () => document.getElementById('importFile').click(),
   'reset-demo': () => confirmDo('Replace all data with the original sample record?', () => {
-    DB = seed(); save(); sbPushAll(DB); closeModal(); render(); toast('Sample data restored');
+    DB = seed(); ensureSitesAndUsers(false); save(); sbPushAll(DB); closeModal(); render(); toast('Sample data restored');
   }),
 };
 
@@ -2405,6 +3081,13 @@ function toast(msg) {
 }
 
 /* ---------- events ---------- */
+
+document.addEventListener('submit', (e) => {
+  if (e.target && e.target.id === 'loginForm') {
+    e.preventDefault();
+    ACTIONS.login();
+  }
+});
 
 document.addEventListener('click', (e) => {
   const selectTrigger = e.target.closest('.gg-select-trigger');
@@ -2477,6 +3160,11 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target.matches('input[name="active_site"]')) {
+    activeSiteId = e.target.value || 'all';
+    render();
+    return;
+  }
   if (e.target.matches('[data-fmea-score]')) {
     const box = document.getElementById('fmeaLiveBox');
     if (box) {
@@ -2515,6 +3203,7 @@ document.addEventListener('change', (e) => {
         const data = JSON.parse(reader.result);
         if (!data || !Array.isArray(data.investigations)) throw new Error('not a GridGuard store');
         DB = Object.assign(seed(), data);
+        ensureSitesAndUsers(false);
         save(); sbPushAll(DB); closeModal(); render(); toast('Data imported & synced');
       } catch (err) { toast('That file is not a GridGuard export'); }
     };

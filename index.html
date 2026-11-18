@@ -8,11 +8,11 @@
 <meta name="theme-color" content="#F3F2F1">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="assets/favicon.svg?v=7" type="image/svg+xml">
-<link rel="stylesheet" href="assets/app.css?v=14">
+<link rel="stylesheet" href="assets/app.css?v=15">
 </head>
 <body>
 
-<header class="nav">
+<header class="nav" id="appHeader">
   <div class="wrap nav-inner">
     <a class="brand" href="#/" aria-label="GridGuard RCA home">
       <span class="brand-mark">
@@ -30,6 +30,7 @@
       <button class="nav-link" data-route="#/">Dashboard</button>
       <button class="nav-link" data-route="#/investigations">Investigations</button>
       <button class="nav-link" data-route="#/capas">CAPA Actions</button>
+      <button class="nav-link" data-route="#/admin" id="adminNavBtn" style="display:none">Sites &amp; Users</button>
     </nav>
 
     <div class="nav-right">
@@ -47,10 +48,12 @@
           <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.1a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>
         </svg>
       </button>
+      <div id="userChipHost"></div>
     </div>
   </div>
 </header>
 
+<div id="landingHost"></div>
 <main id="view" class="wrap page"></main>
 
 <div id="modalHost"></div>
@@ -73,6 +76,6 @@
 </template>
 
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
-<script src="assets/app.js?v=21"></script>
+<script src="assets/app.js?v=22"></script>
 </body>
 </html>
