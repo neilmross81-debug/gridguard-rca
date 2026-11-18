@@ -246,6 +246,141 @@ const invById = (id) => DB.investigations.find(i => i.id === id);
 const byInv = (coll, id) => DB[coll].filter(r => r.investigation_id === id);
 const capasByStatus = (s) => DB.capa_actions.filter(c => c.status === s);
 
+/* ---------- Supabase multi-user cloud sync ---------- */
+
+const SUPABASE_URL = 'https://nhhtxfimvlapqlbvcrlz.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_5gmDFx3BwVPjNBxjobriDQ_LpDxDAnl';
+const SB_TABLES = ['investigations', 'timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions'];
+const SB_MIGRATED_KEY = 'gridguard_supabase_migrated_v1';
+
+let syncState = { status: 'syncing', text: 'Syncing…', detail: 'Connecting to Supabase…' };
+let lastSyncAt = 0;
+
+function setSyncState(status, text, detail = '') {
+  syncState = { status, text, detail };
+  const btn = document.getElementById('syncBtn');
+  if (!btn) return;
+  btn.className = `sync-pill ${status === 'ok' ? 'ok' : status === 'syncing' ? 'syncing' : status === 'setup' ? 'warn' : ''}`;
+  const label = btn.querySelector('.sync-text');
+  if (label) label.textContent = text;
+  btn.title = detail || text;
+}
+
+function sbHeaders(extra = {}) {
+  const h = { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...extra };
+  if (SUPABASE_KEY.startsWith('eyJ')) h.Authorization = `Bearer ${SUPABASE_KEY}`;
+  return h;
+}
+
+async function sbFetch(path, opts = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...opts,
+    headers: sbHeaders(opts.headers || {}),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error(`Supabase ${res.status}: ${body}`);
+    err.status = res.status;
+    err.body = body;
+    throw err;
+  }
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+function sbUpsert(table, rows) {
+  const arr = Array.isArray(rows) ? rows : [rows];
+  if (!arr.length) return Promise.resolve();
+  return sbFetch(table, {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify(arr),
+  }).then(() => setSyncState('ok', 'Synced', `Last saved ${new Date().toLocaleTimeString()}`))
+    .catch(err => handleSbWriteError(err));
+}
+
+function sbDelete(table, id) {
+  return sbFetch(`${table}?id=eq.${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Prefer: 'return=minimal' },
+  }).then(() => setSyncState('ok', 'Synced', `Last saved ${new Date().toLocaleTimeString()}`))
+    .catch(err => handleSbWriteError(err));
+}
+
+function sbDeleteByInv(table, invId) {
+  return sbFetch(`${table}?investigation_id=eq.${encodeURIComponent(invId)}`, {
+    method: 'DELETE',
+    headers: { Prefer: 'return=minimal' },
+  }).catch(err => handleSbWriteError(err));
+}
+
+function sbTouchInv(invId) {
+  const i = invById(invId);
+  if (i) return sbUpsert('investigations', i);
+  return Promise.resolve();
+}
+
+async function sbPushAll(store) {
+  for (const t of SB_TABLES) {
+    if (Array.isArray(store[t]) && store[t].length) {
+      await sbUpsert(t, store[t]);
+    }
+  }
+}
+
+function handleSbWriteError(err) {
+  if (err && (err.status === 404 || (err.body && err.body.includes('PGRST205')))) {
+    setSyncState('setup', 'Setup SQL', 'Run the setup SQL in Supabase SQL Editor to enable cloud sync.');
+  } else {
+    setSyncState('offline', 'Local only', 'Could not reach Supabase — saved locally.');
+  }
+}
+
+async function syncFromSupabase(showToast = false) {
+  setSyncState('syncing', 'Syncing…', 'Fetching shared RCAs from Supabase…');
+  try {
+    const results = await Promise.all(SB_TABLES.map(t => sbFetch(`${t}?select=*`)));
+    const remote = {};
+    SB_TABLES.forEach((t, idx) => { remote[t] = Array.isArray(results[idx]) ? results[idx] : []; });
+
+    const migrated = localStorage.getItem(SB_MIGRATED_KEY);
+    if (remote.investigations.length === 0) {
+      if (DB.investigations.length > 0) {
+        await sbPushAll(DB);
+      }
+      localStorage.setItem(SB_MIGRATED_KEY, '1');
+    } else {
+      if (!migrated) {
+        const remoteIds = new Set(remote.investigations.map(i => i.id));
+        const localOnlyInvs = DB.investigations.filter(i => !remoteIds.has(i.id) && i.id !== 'rca-osp1-220kv-gis-001');
+        if (localOnlyInvs.length) {
+          const localOnlyIds = new Set(localOnlyInvs.map(i => i.id));
+          await sbUpsert('investigations', localOnlyInvs);
+          for (const t of SB_TABLES.slice(1)) {
+            const childRows = (DB[t] || []).filter(r => localOnlyIds.has(r.investigation_id));
+            if (childRows.length) await sbUpsert(t, childRows);
+            remote[t] = remote[t].concat(childRows);
+          }
+          remote.investigations = remote.investigations.concat(localOnlyInvs);
+          toast(`Uploaded ${localOnlyInvs.length} local RCA(s) to shared cloud`);
+        }
+        localStorage.setItem(SB_MIGRATED_KEY, '1');
+      }
+      SB_TABLES.forEach(t => { DB[t] = remote[t]; });
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) {}
+    }
+
+    lastSyncAt = Date.now();
+    setSyncState('ok', 'Synced', `Shared cloud · ${DB.investigations.length} RCA(s) · ${new Date().toLocaleTimeString()}`);
+    render();
+    if (showToast) toast('Synced with shared cloud');
+  } catch (err) {
+    handleSbWriteError(err);
+    if (showToast) toast(syncState.detail);
+  }
+}
+
 /* ---------- optional Apps Script webhook ---------- */
 
 let webhookTimer = null;
@@ -1634,7 +1769,7 @@ const ACTIONS = {
         DB[c] = DB[c].filter(r => r.investigation_id !== i.id);
       });
       DB.investigations = DB.investigations.filter(x => x.id !== i.id);
-      save(); go('#/investigations'); render(); toast('Investigation deleted');
+      save(); sbDelete('investigations', i.id); go('#/investigations'); render(); toast('Investigation deleted');
     });
   },
 
@@ -1646,31 +1781,42 @@ const ACTIONS = {
     const dv = document.querySelector('[name="ev_date"]')?.value;
     const tv = document.querySelector('[name="ev_time"]')?.value;
     v.timestamp = fromDateTimeInput(dv, tv);
-    if (el.dataset.tl) Object.assign(DB.timeline_events.find(x => x.id === el.dataset.tl), v);
-    else DB.timeline_events.push(Object.assign({ id: uid('tl'), investigation_id: el.dataset.id }, v));
-    touchInv(el.dataset.id); save(); closeModal(); render(); toast('Timeline event saved');
+    let savedRow;
+    if (el.dataset.tl) {
+      savedRow = DB.timeline_events.find(x => x.id === el.dataset.tl);
+      Object.assign(savedRow, v);
+    } else {
+      savedRow = Object.assign({ id: uid('tl'), investigation_id: el.dataset.id }, v);
+      DB.timeline_events.push(savedRow);
+    }
+    touchInv(el.dataset.id); save(); sbUpsert('timeline_events', savedRow); sbTouchInv(el.dataset.id);
+    closeModal(); render(); toast('Timeline event saved');
   },
   'del-timeline': (el) => confirmDo('Delete this timeline event?', () => {
     const ev = DB.timeline_events.find(x => x.id === el.dataset.tl);
     DB.timeline_events = DB.timeline_events.filter(x => x.id !== el.dataset.tl);
     if (ev) touchInv(ev.investigation_id);
-    save(); render(); toast('Deleted');
+    save(); sbDelete('timeline_events', el.dataset.tl); if (ev) sbTouchInv(ev.investigation_id);
+    render(); toast('Deleted');
   }),
   'download-timeline-template': () => downloadTimelineTemplate(),
   'import-timeline': (el) => {
     const inp = document.getElementById('timelineImportFile');
     if (inp) { inp.dataset.invId = el.dataset.id; inp.value = ''; inp.click(); }
   },
-  'confirm-timeline-import': () => {
+  'confirm-timeline-import': async () => {
     if (!pendingTimelineImport) return;
     const { invId, rows } = pendingTimelineImport;
     const mode = document.querySelector('#modalHost [name="import_mode"]')?.value || 'append';
     if (mode === 'replace') {
       DB.timeline_events = DB.timeline_events.filter(r => r.investigation_id !== invId);
+      await sbDeleteByInv('timeline_events', invId);
     }
-    rows.forEach(r => DB.timeline_events.push(Object.assign({ id: uid('tl'), investigation_id: invId }, r)));
+    const newRows = rows.map(r => Object.assign({ id: uid('tl'), investigation_id: invId }, r));
+    DB.timeline_events.push(...newRows);
     pendingTimelineImport = null;
-    touchInv(invId); save(); closeModal(); render();
+    touchInv(invId); save(); sbUpsert('timeline_events', newRows); sbTouchInv(invId);
+    closeModal(); render();
     toast(`Imported ${rows.length} timeline event${rows.length === 1 ? '' : 's'}`);
   },
 
@@ -1682,11 +1828,12 @@ const ACTIONS = {
     if (id) {
       const i = invById(id);
       Object.assign(i, v, { updated_at: new Date().toISOString() });
-      save(); closeModal(); render(); toast('Investigation updated');
+      save(); sbUpsert('investigations', i); closeModal(); render(); toast('Investigation updated');
     } else {
       const nid = uid('rca');
-      DB.investigations.push(Object.assign({ id: nid, drive_share_url: null }, v, { updated_at: new Date().toISOString() }));
-      save(); closeModal(); go(`#/investigations/${nid}/overview`); toast('Investigation created');
+      const rec = Object.assign({ id: nid, drive_share_url: null }, v, { updated_at: new Date().toISOString() });
+      DB.investigations.push(rec);
+      save(); sbUpsert('investigations', rec); closeModal(); go(`#/investigations/${nid}/overview`); toast('Investigation created');
     }
   },
 
@@ -1703,18 +1850,26 @@ const ACTIONS = {
       return;
     }
     const node = { level: Number(v.level) || 1, question: v.question, answer: v.answer, evidence: v.evidence, is_root_cause: Number(v.is_root_cause) || 0 };
-    if (el.dataset.why) Object.assign(DB.five_whys_nodes.find(x => x.id === el.dataset.why), node);
-    else {
-      DB.five_whys_nodes.push(Object.assign({ id: uid('w'), investigation_id: el.dataset.id, parent_id: el.dataset.parent || null, sort_order: DB.five_whys_nodes.length + 1 }, node));
+    let savedNode;
+    if (el.dataset.why) {
+      savedNode = DB.five_whys_nodes.find(x => x.id === el.dataset.why);
+      Object.assign(savedNode, node);
+    } else {
+      savedNode = Object.assign({ id: uid('w'), investigation_id: el.dataset.id, parent_id: el.dataset.parent || null, sort_order: DB.five_whys_nodes.length + 1 }, node);
+      DB.five_whys_nodes.push(savedNode);
     }
-    touchInv(el.dataset.id); save(); closeModal(); render(); toast('Why level saved');
+    touchInv(el.dataset.id); save(); sbUpsert('five_whys_nodes', savedNode); sbTouchInv(el.dataset.id);
+    closeModal(); render(); toast('Why level saved');
   },
   'del-why': (el) => {
     const ids = [el.dataset.why];
     for (let k = 0; k < ids.length; k++) DB.five_whys_nodes.filter(n => n.parent_id === ids[k]).forEach(c => ids.push(c.id));
+    const first = DB.five_whys_nodes.find(n => n.id === el.dataset.why);
     confirmDo(`Delete this why level and ${ids.length - 1} nested branch(es)?`, () => {
       DB.five_whys_nodes = DB.five_whys_nodes.filter(n => !ids.includes(n.id));
-      save(); render(); toast('Deleted');
+      if (first) touchInv(first.investigation_id);
+      save(); ids.forEach(wid => sbDelete('five_whys_nodes', wid)); if (first) sbTouchInv(first.investigation_id);
+      render(); toast('Deleted');
     });
   },
 
@@ -1725,15 +1880,23 @@ const ACTIONS = {
     const v = collect(['vector','cause','detail','is_primary']);
     if (!v.cause) { toast('A cause is required'); return; }
     v.is_primary = Number(v.is_primary) || 0;
-    if (el.dataset.ish) Object.assign(DB.ishikawa_causes.find(x => x.id === el.dataset.ish), v);
-    else DB.ishikawa_causes.push(Object.assign({ id: uid('ish'), investigation_id: el.dataset.id }, v));
-    touchInv(el.dataset.id); save(); closeModal(); render(); toast('Cause saved');
+    let savedIsh;
+    if (el.dataset.ish) {
+      savedIsh = DB.ishikawa_causes.find(x => x.id === el.dataset.ish);
+      Object.assign(savedIsh, v);
+    } else {
+      savedIsh = Object.assign({ id: uid('ish'), investigation_id: el.dataset.id }, v);
+      DB.ishikawa_causes.push(savedIsh);
+    }
+    touchInv(el.dataset.id); save(); sbUpsert('ishikawa_causes', savedIsh); sbTouchInv(el.dataset.id);
+    closeModal(); render(); toast('Cause saved');
   },
   'del-ish': (el) => confirmDo('Delete this cause?', () => {
     const c = DB.ishikawa_causes.find(x => x.id === el.dataset.ish);
     DB.ishikawa_causes = DB.ishikawa_causes.filter(x => x.id !== el.dataset.ish);
     if (c) touchInv(c.investigation_id);
-    save(); render(); toast('Deleted');
+    save(); sbDelete('ishikawa_causes', el.dataset.ish); if (c) sbTouchInv(c.investigation_id);
+    render(); toast('Deleted');
   }),
 
   'add-fmea': (el) => openModal(fmeaForm(el.dataset.id, null)),
@@ -1742,15 +1905,23 @@ const ACTIONS = {
     const v = collect(['component','failure_mode','potential_effect','potential_cause','current_controls','severity','occurrence','detection']);
     if (!v.component) { toast('A component is required'); return; }
     ['severity','occurrence','detection'].forEach(k => v[k] = Number(v[k]) || 1);
-    if (el.dataset.fmea) Object.assign(DB.fmea_items.find(x => x.id === el.dataset.fmea), v);
-    else DB.fmea_items.push(Object.assign({ id: uid('fmea'), investigation_id: el.dataset.id }, v));
-    touchInv(el.dataset.id); save(); closeModal(); render(); toast('Failure mode saved');
+    let savedFmea;
+    if (el.dataset.fmea) {
+      savedFmea = DB.fmea_items.find(x => x.id === el.dataset.fmea);
+      Object.assign(savedFmea, v);
+    } else {
+      savedFmea = Object.assign({ id: uid('fmea'), investigation_id: el.dataset.id }, v);
+      DB.fmea_items.push(savedFmea);
+    }
+    touchInv(el.dataset.id); save(); sbUpsert('fmea_items', savedFmea); sbTouchInv(el.dataset.id);
+    closeModal(); render(); toast('Failure mode saved');
   },
   'del-fmea': (el) => confirmDo('Delete this failure mode?', () => {
     const f = DB.fmea_items.find(x => x.id === el.dataset.fmea);
     DB.fmea_items = DB.fmea_items.filter(x => x.id !== el.dataset.fmea);
     if (f) touchInv(f.investigation_id);
-    save(); render(); toast('Deleted');
+    save(); sbDelete('fmea_items', el.dataset.fmea); if (f) sbTouchInv(f.investigation_id);
+    render(); toast('Deleted');
   }),
 
   'add-capa': (el) => openModal(capaForm(el.dataset.id, null)),
@@ -1759,15 +1930,23 @@ const ACTIONS = {
     const v = collect(['type','description','owner','status','verification_notes']);
     if (!v.description) { toast('An action description is required'); return; }
     v.target_date = fromDateInput(document.querySelector('[name="target_date"]').value);
-    if (el.dataset.capa) Object.assign(DB.capa_actions.find(x => x.id === el.dataset.capa), v);
-    else DB.capa_actions.push(Object.assign({ id: uid('capa'), investigation_id: el.dataset.id }, v));
-    touchInv(el.dataset.id); save(); closeModal(); render(); toast('Action saved');
+    let savedCapa;
+    if (el.dataset.capa) {
+      savedCapa = DB.capa_actions.find(x => x.id === el.dataset.capa);
+      Object.assign(savedCapa, v);
+    } else {
+      savedCapa = Object.assign({ id: uid('capa'), investigation_id: el.dataset.id }, v);
+      DB.capa_actions.push(savedCapa);
+    }
+    touchInv(el.dataset.id); save(); sbUpsert('capa_actions', savedCapa); sbTouchInv(el.dataset.id);
+    closeModal(); render(); toast('Action saved');
   },
   'del-capa': (el) => confirmDo('Delete this action?', () => {
     const c = DB.capa_actions.find(x => x.id === el.dataset.capa);
     DB.capa_actions = DB.capa_actions.filter(x => x.id !== el.dataset.capa);
     if (c) touchInv(c.investigation_id);
-    save(); render(); toast('Deleted');
+    save(); sbDelete('capa_actions', el.dataset.capa); if (c) sbTouchInv(c.investigation_id);
+    render(); toast('Deleted');
   }),
 
   'print': () => window.print(),
@@ -1778,6 +1957,7 @@ const ACTIONS = {
     DB.app_settings = Object.assign({}, DB.app_settings, collect(['webhook_url']));
     save(); closeModal(); toast('Settings saved');
   },
+  'sync-now': () => syncFromSupabase(true),
   'export-json': () => {
     const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -1789,7 +1969,7 @@ const ACTIONS = {
   },
   'import-json': () => document.getElementById('importFile').click(),
   'reset-demo': () => confirmDo('Replace all data with the original sample record?', () => {
-    DB = seed(); save(); closeModal(); render(); toast('Sample data restored');
+    DB = seed(); save(); sbPushAll(DB); closeModal(); render(); toast('Sample data restored');
   }),
 };
 
@@ -1918,20 +2098,25 @@ document.addEventListener('change', (e) => {
         const data = JSON.parse(reader.result);
         if (!data || !Array.isArray(data.investigations)) throw new Error('not a GridGuard store');
         DB = Object.assign(seed(), data);
-        save(); closeModal(); render(); toast('Data imported');
+        save(); sbPushAll(DB); closeModal(); render(); toast('Data imported & synced');
       } catch (err) { toast('That file is not a GridGuard export'); }
     };
     reader.readAsText(file);
   }
 });
 
+document.getElementById('syncBtn')?.addEventListener('click', () => syncFromSupabase(true));
 document.getElementById('newRcaBtn').addEventListener('click', () => ACTIONS['new-rca']());
 document.getElementById('settingsBtn').addEventListener('click', () => ACTIONS['settings']());
 document.getElementById('navLinks').addEventListener('click', (e) => { /* handled by delegation */ });
 window.addEventListener('hashchange', render);
 window.addEventListener('resize', closeDropdown);
+window.addEventListener('focus', () => {
+  if (Date.now() - lastSyncAt > 15000) syncFromSupabase(false);
+});
 
 /* ---------- boot ---------- */
 
 load();
 render();
+syncFromSupabase(false);
