@@ -935,7 +935,8 @@ function whyCard(n, isBranch) {
     <div class="why-q">${esc(n.question)}</div>
     ${n.answer ? `<div class="why-a">${esc(n.answer)}</div>` : ''}
     ${n.evidence ? `<div class="why-e"><strong class="dim">Evidence:</strong> ${esc(n.evidence)}</div>` : ''}
-    ${renderAttachments(n.investigation_id, 'whys', n.id, true, renderLinkedCapaTabs(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`))}
+    ${renderAttachments(n.investigation_id, 'whys', n.id, true)}
+    ${renderLinkedCapaTabs(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
     ${renderLinkedCapas(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
     ${!n.is_root_cause && kids === 0 ? `<div class="why-nudge no-print">
       <span><strong>Keep drilling (${esc(nextGuide.stage)}):</strong> ${esc(nextGuide.prompt)}</span>
