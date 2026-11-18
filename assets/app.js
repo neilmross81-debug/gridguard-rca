@@ -171,6 +171,7 @@ function seed() {
       incident_date: '2026-11-14T03:42:00.000',
       investigator_name: 'Henrik Lindqvist',
       investigator_role: 'Lead HV Operations Engineer',
+      problem_statement: '220kV GIS Bay 04 tripped offline on Stage-2 SF6 low-density lockout while SCADA RTU telemetry simultaneously dropped for 18 minutes, causing an unplanned 240 MW export curtailment without remote fault visibility.',
       executive_summary: 'At 03:42 UTC on 14 Nov 2026, 220kV Gas-Insulated Switchgear (GIS) Bay 04 experienced a Stage-2 SF6 density lockout trip, isolating Export Transformer TX-02 (240 MW curtailment). Concurrently, the primary SCADA RTU gateway dropped IEC 61850 MMS telemetry for 18 minutes due to an unbuffered DC auxiliary bus sag during breaker trip coil actuation.',
       root_cause_conclusion: 'Primary Root Cause: Accelerated galvanic corrosion on the Bay 04 SF6 density sensor flange seal caused by marine salt-mist ingress through a degraded IP66 gland, compounded by an undersized 110V DC auxiliary battery bank that sagged below RTU brownout threshold during simultaneous trip-coil energization.',
       drive_share_url: null,
@@ -620,6 +621,10 @@ function tabOverview(i) {
   <div class="grid-2">
     <div>
       <section class="section">
+        <div class="section-head"><div><h2 class="h3">Problem statement</h2><p>What deviated, where, and operational impact</p></div></div>
+        <div class="card card-pad" style="border-left:3px solid var(--amber)"><p class="muted" style="margin:0">${esc(i.problem_statement || 'No problem statement recorded yet.')}</p></div>
+      </section>
+      <section class="section">
         <div class="section-head"><div><h2 class="h3">Executive summary</h2><p>What happened, and what it cost</p></div></div>
         <div class="card card-pad"><p class="muted" style="margin:0">${esc(i.executive_summary || 'No summary recorded yet.')}</p></div>
       </section>
@@ -961,18 +966,21 @@ function tabReport(i) {
       </dl>
     </div>
 
-    <h2>1. Executive summary</h2>
+    <h2>1. Problem statement</h2>
+    <p>${esc(i.problem_statement || '—')}</p>
+
+    <h2>2. Executive summary</h2>
     <p>${esc(i.executive_summary || '—')}</p>
 
-    <h2>2. Sequence of events timeline</h2>
+    <h2>3. Sequence of events timeline</h2>
     ${renderVisualTimeline(events)}
 
-    <h2>3. 5 Whys interrogative chain</h2>
+    <h2>4. 5 Whys interrogative chain</h2>
     ${whys.map(n => `<p><strong>Why L${n.level}${n.is_root_cause ? ' — verified root cause' : ''}:</strong> ${esc(n.question)}<br>
       <span class="muted">Finding: ${esc(n.answer || '—')}</span><br>
       <span class="dim">Evidence: ${esc(n.evidence || '—')}</span></p>`).join('') || '<p class="dim">No chain recorded.</p>'}
 
-    <h2>4. Ishikawa 6M breakdown</h2>
+    <h2>5. Ishikawa 6M breakdown</h2>
     <table class="table"><thead><tr><th>6M vector</th><th>Identified causes</th></tr></thead><tbody>
       ${Object.keys(VECTOR).map(v => {
         const items = ish.filter(c => c.vector === v);
@@ -981,7 +989,7 @@ function tabReport(i) {
       }).join('') || '<tr><td colspan="2" class="dim">No causes recorded.</td></tr>'}
     </tbody></table>
 
-    <h2>5. FMEA matrix</h2>
+    <h2>6. FMEA matrix</h2>
     <table class="table"><thead><tr><th>Component</th><th>Failure mode</th><th>Potential effect</th><th class="num">S</th><th class="num">O</th><th class="num">D</th><th class="num">RPN</th><th>Risk</th></tr></thead><tbody>
       ${fmea.map(f => { const [band, tone] = riskBand(rpnOf(f)); return `<tr>
         <td><strong>${esc(f.component)}</strong></td><td class="muted">${esc(f.failure_mode)}</td><td class="muted">${esc(f.potential_effect)}</td>
@@ -989,10 +997,10 @@ function tabReport(i) {
         <td class="num"><strong>${rpnOf(f)}</strong></td><td>${band}</td></tr>`; }).join('') || '<tr><td colspan="8" class="dim">No failure modes assessed.</td></tr>'}
     </tbody></table>
 
-    <h2>6. Root cause conclusion</h2>
+    <h2>7. Root cause conclusion</h2>
     <p><strong>${esc(i.root_cause_conclusion || 'Not yet concluded.')}</strong></p>
 
-    <h2>7. Corrective &amp; preventive action plan</h2>
+    <h2>8. Corrective &amp; preventive action plan</h2>
     <table class="table"><thead><tr><th>Type</th><th>Action &amp; verification</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody>
       ${capas.map(c => `<tr>
         <td>${esc(CAPA_TYPE[c.type] || c.type)}</td>
@@ -1208,7 +1216,7 @@ function rcaForm(i) {
     document_code: `RCA-${new Date().getFullYear()}-OSP1-${String(DB.investigations.length + 2).padStart(3, '0')}`,
     title: '', facility_name: 'North Sea Offshore Substation OSP-01', asset_category: 'substationOsp',
     equipment_tag: '', voltage_class: '', severity: 'major', fault_category: 'electrical', status: 'inProgress',
-    incident_date: new Date().toISOString(), investigator_name: '', investigator_role: '', executive_summary: '',
+    incident_date: new Date().toISOString(), investigator_name: '', investigator_role: '', problem_statement: '', executive_summary: '',
     root_cause_conclusion: '',
   };
 
@@ -1247,6 +1255,12 @@ function rcaForm(i) {
         <div class="field col-span-2">
           <label>Investigator role</label>
           <input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="Lead HV Operations Engineer">
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="field col-span-2">
+          <label>Problem statement</label>
+          <textarea class="textarea" name="problem_statement" placeholder="Concise statement of what deviated, where, and its operational impact…">${esc(d.problem_statement || '')}</textarea>
         </div>
       </div>
       <div class="form-grid">
@@ -1662,7 +1676,7 @@ const ACTIONS = {
 
   'save-rca': (el) => {
     const id = el.dataset.id;
-    const v = collect(['document_code','title','facility_name','equipment_tag','asset_category','fault_category','voltage_class','severity','status','investigator_name','investigator_role','executive_summary','root_cause_conclusion']);
+    const v = collect(['document_code','title','facility_name','equipment_tag','asset_category','fault_category','voltage_class','severity','status','investigator_name','investigator_role','problem_statement','executive_summary','root_cause_conclusion']);
     if (!v.title) { toast('A title is required'); return; }
     v.incident_date = fromDateInput(document.querySelector('[name="incident_date"]').value);
     if (id) {
