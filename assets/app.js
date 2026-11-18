@@ -1189,44 +1189,116 @@ function tabReport(i) {
   const ish = byInv('ishikawa_causes', i.id);
   const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
   const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
+  const atts = byInv('attachments', i.id);
+  const rootWhys = whys.filter(n => n.is_root_cause);
+  const maxRpn = fmea.length ? Math.max(...fmea.map(rpnOf)) : 0;
+  const openCapas = capas.filter(c => ['open', 'inProgress'].includes(c.status)).length;
+  const generatedAt = fmtDateTime(new Date().toISOString());
+
+  const tocItems = [
+    ['01', 'Problem statement', i.problem_statement ? 'Recorded' : 'Pending', 'rep-sec-1'],
+    ['02', 'Executive summary', i.executive_summary ? 'Recorded' : 'Pending', 'rep-sec-2'],
+    ['03', 'Sequence of events (timeline)', `${events.length} event${events.length === 1 ? '' : 's'}`, 'rep-sec-3'],
+    ['04', '5 Whys interrogative chain', `${whys.length} level${whys.length === 1 ? '' : 's'} · ${rootWhys.length} root cause${rootWhys.length === 1 ? '' : 's'}`, 'rep-sec-4'],
+    ['05', 'Ishikawa 6M breakdown', `${ish.length} cause${ish.length === 1 ? '' : 's'}`, 'rep-sec-5'],
+    ['06', 'Failure mode & effects analysis (FMEA)', `${fmea.length} item${fmea.length === 1 ? '' : 's'}${maxRpn ? ` · Max RPN ${maxRpn}` : ''}`, 'rep-sec-6'],
+    ['07', 'Root cause conclusion', i.root_cause_conclusion ? 'Verified' : 'Pending', 'rep-sec-7'],
+    ['08', 'Corrective & preventive action (CAPA) plan', `${capas.length} action${capas.length === 1 ? '' : 's'} (${openCapas} open)`, 'rep-sec-8'],
+    ['09', 'Attachments & supporting evidence', `${atts.length} file${atts.length === 1 ? '' : 's'}`, 'rep-sec-9'],
+  ];
 
   return `
   <div class="report" id="reportBody">
     <div class="section-head no-print">
-      <div><h2 class="h3">Generated report</h2><p>Print or save as PDF from the browser dialog</p></div>
+      <div><h2 class="h3" style="margin:0;border:0;padding:0">Engineering RCA report</h2><p>Includes cover page, table of contents, and sign-off block for PDF export</p></div>
       <button class="btn btn-primary btn-sm" data-action="print">${icon('print')} Print / Save PDF</button>
     </div>
 
-    <div class="card card-pad" style="margin-bottom:26px">
-      <div class="eyebrow">Industrial Root Cause Analysis Report</div>
-      <h1 class="h2" style="margin-bottom:12px">${esc(i.title)}</h1>
-      <div class="chip-row" style="margin-bottom:20px">${sevChip(i.severity)} ${statusChip(i.status)}${chip(FAULT[i.fault_category] || '—', 'slate')}</div>
-      <dl class="kv">
-        <dt>Document ID</dt><dd class="mono">${esc(i.document_code)}</dd>
-        <dt>Facility / Site</dt><dd>${esc(i.facility_name)}</dd>
-        <dt>Asset hierarchy</dt><dd>${esc(ASSET[i.asset_category] || '—')}</dd>
-        <dt>Equipment tag</dt><dd class="mono">${esc(i.equipment_tag || '—')}</dd>
-        <dt>System / voltage</dt><dd>${esc(i.voltage_class || '—')}</dd>
-        <dt>Incident date</dt><dd>${fmtDateTime(i.incident_date)}</dd>
-        <dt>Investigator</dt><dd>${esc(i.investigator_name || '—')}${i.investigator_role ? ' — ' + esc(i.investigator_role) : ''}</dd>
-      </dl>
+    <div class="report-cover">
+      <div>
+        <div class="report-cover-top">
+          <div class="report-cover-brand">
+            <span class="brand-mark" style="width:26px;height:26px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px">
+                <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/>
+              </svg>
+            </span>
+            <span>GridGuard RCA</span>
+          </div>
+          <span class="report-cover-class">Engineering Audit Report · Confidential</span>
+        </div>
+
+        <div class="chip-row" style="margin-bottom:10px">
+          <span class="chip chip-slate mono">${esc(i.document_code)}</span>
+          ${sevChip(i.severity)}
+          ${statusChip(i.status)}
+          ${chip(FAULT[i.fault_category] || '—', 'slate')}
+        </div>
+        <h1 class="report-cover-title">${esc(i.title)}</h1>
+        <p class="report-cover-sub">${esc(i.facility_name || '—')}${i.equipment_tag ? ' · ' + esc(i.equipment_tag) : ''}${i.voltage_class ? ' · ' + esc(i.voltage_class) : ''}</p>
+
+        <dl class="kv" style="margin-top:20px">
+          <dt>Document ID</dt><dd class="mono">${esc(i.document_code)}</dd>
+          <dt>Facility / Site</dt><dd>${esc(i.facility_name || '—')}</dd>
+          <dt>Asset hierarchy</dt><dd>${esc(ASSET[i.asset_category] || '—')}</dd>
+          <dt>Equipment tag</dt><dd class="mono">${esc(i.equipment_tag || '—')}</dd>
+          <dt>System / voltage</dt><dd>${esc(i.voltage_class || '—')}</dd>
+          <dt>Incident date (UTC)</dt><dd>${fmtDateTime(i.incident_date)}</dd>
+          <dt>Lead investigator</dt><dd>${esc(i.investigator_name || '—')}${i.investigator_role ? ' — ' + esc(i.investigator_role) : ''}</dd>
+          <dt>Report generated</dt><dd>${generatedAt}</dd>
+        </dl>
+
+        <div class="report-kpis">
+          <div class="report-kpi"><div class="report-kpi-val">${events.length}</div><div class="report-kpi-lbl">Timeline events</div></div>
+          <div class="report-kpi"><div class="report-kpi-val">${whys.length}</div><div class="report-kpi-lbl">5 Whys levels</div></div>
+          <div class="report-kpi"><div class="report-kpi-val">${ish.length}</div><div class="report-kpi-lbl">6M causes</div></div>
+          <div class="report-kpi"><div class="report-kpi-val">${maxRpn || '—'}</div><div class="report-kpi-lbl">Max FMEA RPN</div></div>
+          <div class="report-kpi"><div class="report-kpi-val">${capas.length}</div><div class="report-kpi-lbl">CAPA actions</div></div>
+          <div class="report-kpi"><div class="report-kpi-val">${atts.length}</div><div class="report-kpi-lbl">Attachments</div></div>
+        </div>
+      </div>
+
+      <div class="report-doc-ctrl">
+        <div><strong>Prepared by</strong><span>${esc(i.investigator_name || '—')}${i.investigator_role ? '<br>' + esc(i.investigator_role) : ''}</span></div>
+        <div><strong>Document status</strong><span>${esc((STATUS[i.status] || {}).label || i.status)} · ${esc((SEVERITY[i.severity] || {}).label || i.severity)} severity</span></div>
+        <div><strong>Issue / export date</strong><span>${generatedAt}</span></div>
+      </div>
     </div>
 
-    <h2>1. Problem statement</h2>
-    <p>${esc(i.problem_statement || '—')}</p>
+    <div class="report-toc">
+      <div class="report-toc-title">Table of Contents</div>
+      <div class="report-toc-list">
+        ${tocItems.map(([num, name, meta, targetId]) => `<button type="button" class="report-toc-item" data-scroll-to="${targetId}">
+          <span class="report-toc-num">${num}</span>
+          <span class="report-toc-name">${esc(name)}</span>
+          <span class="report-toc-dots"></span>
+          <span class="report-toc-meta">${esc(meta)}</span>
+        </button>`).join('')}
+      </div>
+    </div>
 
-    <h2>2. Executive summary</h2>
+    <h2 id="rep-sec-1"><span class="sec-num">01</span> Problem statement</h2>
+    <div class="report-callout warn"><p style="margin:0">${esc(i.problem_statement || 'No problem statement recorded.')}</p></div>
+
+    <h2 id="rep-sec-2"><span class="sec-num">02</span> Executive summary</h2>
     <p>${esc(i.executive_summary || '—')}</p>
 
-    <h2>3. Sequence of events timeline</h2>
+    <h2 id="rep-sec-3"><span class="sec-num">03</span> Sequence of events (timeline)</h2>
     ${renderVisualTimeline(events)}
 
-    <h2>4. 5 Whys interrogative chain</h2>
-    ${whys.map(n => `<p><strong>Why L${n.level}${n.is_root_cause ? ' — verified root cause' : ''}:</strong> ${esc(n.question)}<br>
-      <span class="muted">Finding: ${esc(n.answer || '—')}</span><br>
-      <span class="dim">Evidence: ${esc(n.evidence || '—')}</span></p>`).join('') || '<p class="dim">No chain recorded.</p>'}
+    <h2 id="rep-sec-4"><span class="sec-num">04</span> 5 Whys interrogative chain</h2>
+    ${whys.map(n => `<div class="report-why ${n.is_root_cause ? 'root' : ''}">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+        <strong>Why L${n.level}</strong>
+        ${n.is_root_cause ? chip('Verified root cause', 'green') : ''}
+      </div>
+      <div style="font-weight:600;color:var(--ink);margin-bottom:4px">${esc(n.question)}</div>
+      <div class="muted" style="font-size:13.5px;margin-bottom:4px"><strong>Finding:</strong> ${esc(n.answer || '—')}</div>
+      <div class="dim" style="font-size:12.5px"><strong>Evidence:</strong> ${esc(n.evidence || '—')}</div>
+      ${renderLinkedCapas(i.id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
+    </div>`).join('') || '<p class="dim">No chain recorded.</p>'}
 
-    <h2>5. Ishikawa 6M breakdown</h2>
+    <h2 id="rep-sec-5"><span class="sec-num">05</span> Ishikawa 6M breakdown</h2>
     <table class="table"><thead><tr><th>6M vector</th><th>Identified causes</th></tr></thead><tbody>
       ${Object.keys(VECTOR).map(v => {
         const items = ish.filter(c => c.vector === v);
@@ -1235,18 +1307,18 @@ function tabReport(i) {
       }).join('') || '<tr><td colspan="2" class="dim">No causes recorded.</td></tr>'}
     </tbody></table>
 
-    <h2>6. FMEA matrix</h2>
+    <h2 id="rep-sec-6"><span class="sec-num">06</span> Failure mode &amp; effects analysis (FMEA)</h2>
     <table class="table"><thead><tr><th>Component</th><th>Failure mode</th><th>Potential effect</th><th class="num">S</th><th class="num">O</th><th class="num">D</th><th class="num">RPN</th><th>Risk</th></tr></thead><tbody>
-      ${fmea.map(f => { const [band, tone] = riskBand(rpnOf(f)); return `<tr>
+      ${fmea.map(f => { const [band] = riskBand(rpnOf(f)); return `<tr>
         <td><strong>${esc(f.component)}</strong></td><td class="muted">${esc(f.failure_mode)}</td><td class="muted">${esc(f.potential_effect)}</td>
         <td class="num">${f.severity}</td><td class="num">${f.occurrence}</td><td class="num">${f.detection}</td>
         <td class="num"><strong>${rpnOf(f)}</strong></td><td>${band}</td></tr>`; }).join('') || '<tr><td colspan="8" class="dim">No failure modes assessed.</td></tr>'}
     </tbody></table>
 
-    <h2>7. Root cause conclusion</h2>
-    <p><strong>${esc(i.root_cause_conclusion || 'Not yet concluded.')}</strong></p>
+    <h2 id="rep-sec-7"><span class="sec-num">07</span> Root cause conclusion</h2>
+    <div class="report-callout ok"><p style="margin:0"><strong>${esc(i.root_cause_conclusion || 'Not yet concluded.')}</strong></p></div>
 
-    <h2>8. Corrective &amp; preventive action plan</h2>
+    <h2 id="rep-sec-8"><span class="sec-num">08</span> Corrective &amp; preventive action (CAPA) plan</h2>
     <table class="table"><thead><tr><th>Type</th><th>Action &amp; verification</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody>
       ${capas.map(c => `<tr>
         <td>${esc(CAPA_TYPE[c.type] || c.type)}</td>
@@ -1255,25 +1327,27 @@ function tabReport(i) {
         <td>${(CAPA_STATUS[c.status] || {}).label || esc(c.status)}</td></tr>`).join('') || '<tr><td colspan="5" class="dim">No actions raised.</td></tr>'}
     </tbody></table>
 
-    <h2>9. Attachments &amp; evidence</h2>
-    ${(() => {
-      const atts = byInv('attachments', i.id);
-      if (!atts.length) return '<p class="dim">No attachments uploaded.</p>';
-      return `<table class="table"><thead><tr><th>Area</th><th>File</th><th>Caption</th><th>Size</th></tr></thead><tbody>
-        ${atts.map(a => `<tr>
-          <td>${esc(a.area)}</td>
-          <td><strong>${esc(a.file_name)}</strong>${/^image\//i.test(a.mime_type || '') && a.data_url ? `<div style="margin-top:6px"><img src="${esc(a.data_url)}" alt="${esc(a.file_name)}" style="max-width:220px;max-height:140px;border-radius:4px;border:1px solid var(--line)"></div>` : ''}</td>
-          <td class="muted">${esc(a.caption || '—')}</td>
-          <td class="muted">${fmtBytes(a.size_bytes)}</td>
-        </tr>`).join('')}
-      </tbody></table>`;
-    })()}
+    <h2 id="rep-sec-9"><span class="sec-num">09</span> Attachments &amp; supporting evidence</h2>
+    ${atts.length
+      ? `<table class="table"><thead><tr><th>Area</th><th>File</th><th>Caption</th><th>Size</th></tr></thead><tbody>
+          ${atts.map(a => `<tr>
+            <td>${esc(AREA_LABELS[a.area] || a.area)}</td>
+            <td><strong>${esc(a.file_name)}</strong>${/^image\//i.test(a.mime_type || '') && a.data_url ? `<div style="margin-top:6px"><img src="${esc(a.data_url)}" alt="${esc(a.file_name)}" style="max-width:220px;max-height:140px;border-radius:4px;border:1px solid var(--line)"></div>` : ''}</td>
+            <td class="muted">${esc(a.caption || '—')}</td>
+            <td class="muted">${fmtBytes(a.size_bytes)}</td>
+          </tr>`).join('')}
+        </tbody></table>`
+      : '<p class="dim">No attachments uploaded.</p>'}
 
-    <div class="divider"></div>
-    <p class="dim" style="font-size:12.5px">
-      GridGuard RCA Engineering Report · Generated ${fmtDateTime(new Date().toISOString())} ·
-      Investigator sign-off <strong>${esc(i.investigator_name || '—')}</strong>, ${esc(i.investigator_role || '')}
-    </p>
+    <div class="report-signoff">
+      <div class="eyebrow" style="margin-bottom:4px">Document Sign-Off &amp; Audit Approval</div>
+      <p class="dim" style="margin:0;font-size:12.5px">GridGuard RCA Engineering Report · ${esc(i.document_code)} · Generated ${generatedAt}</p>
+      <div class="report-signoff-grid">
+        <div class="report-sig-box"><strong>Investigator</strong>${esc(i.investigator_name || '—')}${i.investigator_role ? ' · ' + esc(i.investigator_role) : ''}</div>
+        <div class="report-sig-box"><strong>Technical Reviewer</strong>Signature / Date</div>
+        <div class="report-sig-box"><strong>Operations / HSE Approval</strong>Signature / Date</div>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2349,6 +2423,14 @@ document.addEventListener('click', (e) => {
 
   const routeEl = e.target.closest('[data-route]');
   if (routeEl) { e.preventDefault(); go(routeEl.dataset.route); return; }
+
+  const scrollEl = e.target.closest('[data-scroll-to]');
+  if (scrollEl) {
+    e.preventDefault();
+    const target = document.getElementById(scrollEl.dataset.scrollTo);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
 
   const tabEl = e.target.closest('[data-tab]');
   if (tabEl) {

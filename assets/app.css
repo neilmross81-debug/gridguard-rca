@@ -1002,6 +1002,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .journey-steps { grid-template-columns: repeat(2, 1fr); }
   .kv { grid-template-columns: 1fr; gap: 2px 0; }
   .kv dt { padding-top: 8px; }
+  .report-cover { padding: 22px 18px; }
+  .report-toc { padding: 20px 18px; }
+  .report-kpis { grid-template-columns: repeat(2, 1fr); }
+  .report-doc-ctrl, .report-signoff-grid { grid-template-columns: 1fr; }
   .overlay { padding: 16px 12px; }
   .modal-body { padding: 18px; max-height: calc(100dvh - 150px); }
   .modal-head, .modal-foot { padding: 16px 18px; }
@@ -1022,11 +1026,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 /* ---------- print ---------- */
 
 @media print {
+  @page { size: A4; margin: 14mm 14mm 16mm; }
   body { background: #fff; color: #111; }
-  .nav, .page-actions, .tabs, .toast-host, .no-print, .journey, .coach-banner, .ish-drawer { display: none !important; }
-  .wrap { max-width: none; padding: 0; }
-  .card, .why, .ish, .tl-card { border-color: #ccc; box-shadow: none; background: #fff; }
+  .nav, .page-actions, .tabs, .toast-host, .no-print, .journey, .coach-banner, .ish-drawer, .breadcrumb, .rca-head { display: none !important; }
+  .wrap, .page { max-width: none; padding: 0; margin: 0; }
+  .card, .why, .ish, .tl-card, .report-cover, .report-toc, .report-why, .report-signoff { border-color: #ccc; box-shadow: none; background: #fff; }
+  .report { max-width: none; }
+  .report-cover { break-after: page; page-break-after: always; min-height: 245mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .report-toc { break-after: page; page-break-after: always; }
+  .report h2 { color: #111; border-color: #999; break-after: avoid; page-break-after: avoid; }
+  .report-why, .report-callout, .report-signoff, .tl-item, tr { break-inside: avoid; page-break-inside: avoid; }
   .tl-dot { box-shadow: 0 0 0 3px #fff; }
-  .report h2 { color: #111; border-color: #ccc; }
   .report p, .muted, .dim { color: #333 !important; }
 }
