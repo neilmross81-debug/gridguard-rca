@@ -104,6 +104,8 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
 };
 
 const fmtDate = (iso) => {
@@ -907,10 +909,15 @@ function tabTimeline(i) {
   </tr>`).join('') || `<tr><td colspan="5"><div class="empty"><strong>No timeline events recorded</strong>Add SOE, SCADA alarm, trip, and restoration timestamps to build the incident timeline.</div></td></tr>`;
 
   return `
-  <div class="section-head">
-    <div><h2 class="h3">Sequence of events table</h2><p>Log chronological timestamps (UTC) — automatically visualised as a timeline here and in the Report</p></div>
-    <button class="btn btn-primary btn-sm" data-action="add-timeline" data-id="${i.id}">${icon('plus')} Add event</button>
+  <div class="section-head" style="flex-wrap:wrap">
+    <div><h2 class="h3">Sequence of events table</h2><p>Log chronological timestamps (UTC) or import from Excel — automatically visualised here and in the Report</p></div>
+    <div class="chip-row no-print">
+      <button class="btn btn-sm" data-action="download-timeline-template">${icon('download')} Excel template</button>
+      <button class="btn btn-sm" data-action="import-timeline" data-id="${i.id}">${icon('upload')} Import Excel</button>
+      <button class="btn btn-primary btn-sm" data-action="add-timeline" data-id="${i.id}">${icon('plus')} Add event</button>
+    </div>
   </div>
+  <input type="file" id="timelineImportFile" accept=".xlsx,.xls,.csv" data-inv-id="${i.id}" style="display:none">
   <div class="card table-scroll" style="margin-bottom:28px">
     <table class="table table-wide">
       <thead><tr><th>Timestamp (UTC)</th><th>Category</th><th>Event &amp; detail</th><th>Source / System</th><th class="no-print"></th></tr></thead>
@@ -1408,6 +1415,153 @@ function timelineForm(invId, ev) {
   };
 }
 
+let pendingTimelineImport = null;
+
+function downloadTimelineTemplate() {
+  const headers = ['Date (YYYY-MM-DD)', 'Time (HH:MM:SS UTC)', 'Category', 'Source / System', 'Event Headline', 'Technical Detail / Evidence'];
+  const sampleRows = [
+    ['2026-11-14', '03:38:15', 'SCADA / Alarm', 'SCADA / RTU', 'Stage-1 SF6 low-density warning on Bay 04 Phase B', 'Compartment pressure crossed 0.56 MPa warning threshold.'],
+    ['2026-11-14', '03:42:11', 'Trip / Fault', 'Relay P543 / COMTRADE #4419', 'Stage-2 SF6 lockout trip on CB-04 (240 MW curtailment)', 'Pressure fell below 0.52 MPa; protection relay executed breaker trip.'],
+  ];
+  const catGuide = [
+    ['Valid Category Values', 'Description'],
+    ['Trip / Fault', 'Protection trip, fault inception, or equipment lockout (Red)'],
+    ['SCADA / Alarm', 'Telemetry loss, warning alarm, or measurement event (Amber)'],
+    ['Operator / Field', 'Switching action, dispatch, or field inspection (Cyan)'],
+    ['Restoration', 'Repair completion or re-energisation (Green)'],
+    ['Observation', 'General note or contextual observation (Slate)'],
+  ];
+
+  if (window.XLSX) {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+    ws['!cols'] = [{ wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 26 }, { wch: 44 }, { wch: 52 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Timeline Events');
+    const wsGuide = XLSX.utils.aoa_to_sheet(catGuide);
+    wsGuide['!cols'] = [{ wch: 22 }, { wch: 58 }];
+    XLSX.utils.book_append_sheet(wb, wsGuide, 'Categories');
+    XLSX.writeFile(wb, 'gridguard-timeline-template.xlsx');
+    toast('Excel template downloaded');
+  } else {
+    const csv = [headers, ...sampleRows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'gridguard-timeline-template.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('CSV template downloaded');
+  }
+}
+
+function normalizeTimelineCategory(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return 'note';
+  if (TIMELINE_CAT[s]) return s;
+  if (s.includes('trip') || s.includes('fault') || s.includes('trigger')) return 'trigger';
+  if (s.includes('scada') || s.includes('alarm') || s.includes('telemetry')) return 'telemetry';
+  if (s.includes('operator') || s.includes('field') || s.includes('action')) return 'action';
+  if (s.includes('restor') || s.includes('recover') || s.includes('re-energ')) return 'recovery';
+  return 'note';
+}
+
+function parseExcelDateStr(val) {
+  if (val === null || val === undefined || val === '') return '';
+  if (typeof val === 'number' && window.XLSX?.SSF?.parse_date_code) {
+    const d = XLSX.SSF.parse_date_code(val);
+    if (d && d.y) return `${String(d.y).padStart(4, '0')}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+  }
+  const s = String(val).trim();
+  const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+  const ukMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (ukMatch) return `${ukMatch[3]}-${ukMatch[2].padStart(2, '0')}-${ukMatch[1].padStart(2, '0')}`;
+  const parsed = new Date(s);
+  return isNaN(parsed) ? '' : parsed.toISOString().slice(0, 10);
+}
+
+function parseExcelTimeStr(val) {
+  if (val === null || val === undefined || val === '') return '00:00:00';
+  if (typeof val === 'number' && window.XLSX?.SSF?.parse_date_code) {
+    const d = XLSX.SSF.parse_date_code(val);
+    if (d) return `${String(d.H || 0).padStart(2, '0')}:${String(d.M || 0).padStart(2, '0')}:${String(d.S || 0).padStart(2, '0')}`;
+  }
+  const s = String(val).trim();
+  const m = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (m) return `${m[1].padStart(2, '0')}:${m[2]}:${(m[3] || '00').padStart(2, '0')}`;
+  return '00:00:00';
+}
+
+function parseTimelineRows(rawRows) {
+  const events = [];
+  rawRows.forEach(row => {
+    const norm = {};
+    Object.keys(row).forEach(k => { norm[String(k).trim().toLowerCase()] = row[k]; });
+    const pick = (...keys) => {
+      for (const k of keys) {
+        if (norm[k] !== undefined && String(norm[k]).trim() !== '') return norm[k];
+      }
+      return '';
+    };
+
+    const title = String(pick('event headline', 'event', 'headline', 'title', 'description')).trim();
+    if (!title) return;
+
+    const rawTs = pick('timestamp', 'timestamp (utc)', 'datetime');
+    let timestamp;
+    if (rawTs) {
+      if (typeof rawTs === 'number' && window.XLSX?.SSF?.parse_date_code) {
+        const d = XLSX.SSF.parse_date_code(rawTs);
+        timestamp = new Date(Date.UTC(d.y, d.m - 1, d.d, d.H || 0, d.M || 0, d.S || 0)).toISOString();
+      } else {
+        const d = new Date(String(rawTs).trim());
+        timestamp = isNaN(d) ? fromDateTimeInput(parseExcelDateStr(rawTs), parseExcelTimeStr(rawTs)) : d.toISOString();
+      }
+    } else {
+      const dateStr = parseExcelDateStr(pick('date (yyyy-mm-dd)', 'date (utc)', 'date'));
+      const timeStr = parseExcelTimeStr(pick('time (hh:mm:ss utc)', 'time (utc)', 'time'));
+      timestamp = dateStr ? fromDateTimeInput(dateStr, timeStr) : new Date().toISOString();
+    }
+
+    events.push({
+      timestamp,
+      category: normalizeTimelineCategory(pick('category', 'type')),
+      source: String(pick('source / system', 'source', 'system')).trim(),
+      title,
+      detail: String(pick('technical detail / evidence', 'technical detail', 'detail', 'details', 'evidence', 'notes')).trim(),
+    });
+  });
+  return events;
+}
+
+function timelineImportModal(invId, rows, fileName) {
+  pendingTimelineImport = { invId, rows };
+  const previewRows = rows.slice(0, 8).map(ev => `<tr>
+    <td class="mono" style="white-space:nowrap">${esc(fmtDateTimeSec(ev.timestamp))}</td>
+    <td>${timelineChip(ev.category)}</td>
+    <td><strong>${esc(ev.title)}</strong>${ev.detail ? `<div class="dim" style="font-size:12px">${esc(ev.detail)}</div>` : ''}</td>
+    <td class="muted">${esc(ev.source || '—')}</td>
+  </tr>`).join('');
+
+  return {
+    eyebrow: 'Excel / CSV Import',
+    title: `Import ${rows.length} timeline event${rows.length === 1 ? '' : 's'}`,
+    width: 'wide',
+    body: `
+      <p class="muted" style="margin:0 0 14px">Parsed <strong>${rows.length}</strong> valid event(s) from <span class="mono">${esc(fileName)}</span>.</p>
+      ${field('Import mode', select('import_mode', [['append', 'Append to existing timeline'], ['replace', 'Replace existing timeline events']], 'append'))}
+      <div class="card table-scroll">
+        <table class="table">
+          <thead><tr><th>Timestamp (UTC)</th><th>Category</th><th>Event &amp; detail</th><th>Source</th></tr></thead>
+          <tbody>${previewRows}</tbody>
+        </table>
+      </div>
+      ${rows.length > 8 ? `<p class="dim" style="font-size:12.5px;margin:10px 0 0">Showing first 8 of ${rows.length} events.</p>` : ''}`,
+    foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn btn-primary" data-action="confirm-timeline-import">${icon('check')} Import ${rows.length} event${rows.length === 1 ? '' : 's'}</button>`,
+  };
+}
+
 function settingsModal() {
   const s = DB.app_settings || {};
   return {
@@ -1488,6 +1642,23 @@ const ACTIONS = {
     if (ev) touchInv(ev.investigation_id);
     save(); render(); toast('Deleted');
   }),
+  'download-timeline-template': () => downloadTimelineTemplate(),
+  'import-timeline': (el) => {
+    const inp = document.getElementById('timelineImportFile');
+    if (inp) { inp.dataset.invId = el.dataset.id; inp.value = ''; inp.click(); }
+  },
+  'confirm-timeline-import': () => {
+    if (!pendingTimelineImport) return;
+    const { invId, rows } = pendingTimelineImport;
+    const mode = document.querySelector('#modalHost [name="import_mode"]')?.value || 'append';
+    if (mode === 'replace') {
+      DB.timeline_events = DB.timeline_events.filter(r => r.investigation_id !== invId);
+    }
+    rows.forEach(r => DB.timeline_events.push(Object.assign({ id: uid('tl'), investigation_id: invId }, r)));
+    pendingTimelineImport = null;
+    touchInv(invId); save(); closeModal(); render();
+    toast(`Imported ${rows.length} timeline event${rows.length === 1 ? '' : 's'}`);
+  },
 
   'save-rca': (el) => {
     const id = el.dataset.id;
@@ -1703,6 +1874,26 @@ document.addEventListener('change', (e) => {
       const d = document.querySelector('#modalHost [name="detection"]')?.value || 5;
       box.innerHTML = fmeaLiveHtml(s, o, d);
     }
+    return;
+  }
+  if (e.target.id === 'timelineImportFile' && e.target.files[0]) {
+    const file = e.target.files[0];
+    const invId = e.target.dataset.invId;
+    if (!window.XLSX) { toast('Excel parser is still loading — try again in a moment'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const wb = XLSX.read(new Uint8Array(reader.result), { type: 'array', cellDates: false });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+        const parsed = parseTimelineRows(rawRows);
+        if (!parsed.length) { toast('No valid timeline events found in that spreadsheet'); return; }
+        openModal(timelineImportModal(invId, parsed, file.name));
+      } catch (err) {
+        toast('Could not read that Excel / CSV file');
+      }
+    };
+    reader.readAsArrayBuffer(file);
     return;
   }
   if (e.target.id === 'importFile' && e.target.files[0]) {
