@@ -771,17 +771,22 @@ function fmtBytes(b) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function getLinkedCapas(invId, prefix, specificPrefix) {
+function getLinkedCapas(invId, sourceRef, prefix, specificPrefix) {
   const all = byInv('capa_actions', invId);
+  const byRef = sourceRef ? all.filter(c => c.source_ref === sourceRef) : [];
+  let byPrefix = [];
   if (specificPrefix) {
-    const exact = all.filter(c => (c.description || '').startsWith(specificPrefix));
-    if (exact.length) return exact;
+    byPrefix = all.filter(c => !c.source_ref && (c.description || '').startsWith(specificPrefix));
   }
-  return prefix ? all.filter(c => (c.description || '').startsWith(prefix)) : [];
+  if (!byPrefix.length && prefix) {
+    byPrefix = all.filter(c => !c.source_ref && (c.description || '').startsWith(prefix));
+  }
+  const seen = new Set();
+  return [...byRef, ...byPrefix].filter(c => (seen.has(c.id) ? false : (seen.add(c.id), true)));
 }
 
-function renderLinkedCapas(invId, prefix, specificPrefix) {
-  const list = getLinkedCapas(invId, prefix, specificPrefix);
+function renderLinkedCapas(invId, sourceRef, prefix, specificPrefix) {
+  const list = getLinkedCapas(invId, sourceRef, prefix, specificPrefix);
   if (!list.length) return '';
   return `<div class="att-list" style="margin-top:8px">
     ${list.map(c => {
@@ -842,7 +847,7 @@ function tabOverview(i) {
         <div class="section-head">
           <div><h2 class="h3">Attachments &amp; evidence</h2><p>Photos, COMTRADE records, test sheets, and supporting files</p></div>
           <div class="chip-row no-print">
-            <button class="btn btn-sm" data-action="add-capa" data-id="${i.id}" data-type="corrective" data-desc="${esc(`[Overview ${i.document_code}] `)}">${icon('plus')} Create CAPA</button>
+            <button class="btn btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="overview:${i.id}" data-type="corrective" data-desc="${esc(`[Overview ${i.document_code}] `)}">${icon('plus')} Create CAPA</button>
             <button class="btn btn-primary btn-sm" data-action="add-attachment" data-id="${i.id}" data-area="overview" data-record="${i.id}">${icon('paperclip')} Attach file</button>
           </div>
         </div>
@@ -996,9 +1001,9 @@ function tabIshikawa(i) {
         <strong>${c.is_primary ? '<span style="color:var(--red)">◆ </span>' : ''}${esc(c.cause)}</strong>
         ${esc(c.detail || '')}
         ${renderAttachments(i.id, 'ishikawa', c.id, true)}
-        ${renderLinkedCapas(i.id, `[${VECTOR[c.vector] || c.vector}] ${c.cause}`)}
+        ${renderLinkedCapas(i.id, `ishikawa:${c.id}`, `[${VECTOR[c.vector] || c.vector}] ${c.cause}`)}
         <div class="chip-row no-print" style="margin-top:7px">
-          <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-type="${c.is_primary ? 'preventive' : 'corrective'}" data-desc="${esc(`[${VECTOR[c.vector] || c.vector}] ${c.cause}${c.detail ? ' — ' + c.detail : ''}`)}">${icon('plus')} CAPA</button>
+          <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="ishikawa:${c.id}" data-type="${c.is_primary ? 'preventive' : 'corrective'}" data-desc="${esc(`[${VECTOR[c.vector] || c.vector}] ${c.cause}${c.detail ? ' — ' + c.detail : ''}`)}">${icon('plus')} CAPA</button>
           <button class="btn btn-ghost btn-sm" data-action="edit-ish" data-ish="${c.id}">${icon('edit')}</button>
           <button class="btn btn-ghost btn-sm" data-action="del-ish" data-ish="${c.id}">${icon('trash')}</button>
         </div>
@@ -1023,7 +1028,7 @@ function tabFmea(i) {
     const [band, tone] = riskBand(rpn);
     const pct = Math.min(100, (rpn / 1000) * 100);
     return `<tr>
-      <td><strong>${esc(f.component)}</strong><div class="dim" style="font-size:12.5px;margin-top:3px">${esc(f.failure_mode)}</div>${renderAttachments(i.id, 'fmea', f.id, true)}${renderLinkedCapas(i.id, `[FMEA ${f.component}`)}</td>
+      <td><strong>${esc(f.component)}</strong><div class="dim" style="font-size:12.5px;margin-top:3px">${esc(f.failure_mode)}</div>${renderAttachments(i.id, 'fmea', f.id, true)}${renderLinkedCapas(i.id, `fmea:${f.id}`, `[FMEA ${f.component}`)}</td>
       <td class="muted">${esc(f.potential_effect)}</td>
       <td class="muted">${esc(f.current_controls || '—')}</td>
       <td class="num">${f.severity}</td>
@@ -1037,7 +1042,7 @@ function tabFmea(i) {
         </div>
       </td>
       <td class="no-print"><div class="chip-row">
-        <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-type="${rpn >= 100 ? 'preventive' : 'corrective'}" data-desc="${esc(`[FMEA ${f.component} · RPN ${rpn}] Mitigate ${f.failure_mode}`)}">${icon('plus')} CAPA</button>
+        <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="fmea:${f.id}" data-type="${rpn >= 100 ? 'preventive' : 'corrective'}" data-desc="${esc(`[FMEA ${f.component} · RPN ${rpn}] Mitigate ${f.failure_mode}`)}">${icon('plus')} CAPA</button>
         <button class="btn btn-ghost btn-sm" data-action="edit-fmea" data-fmea="${f.id}">${icon('edit')}</button>
         <button class="btn btn-ghost btn-sm" data-action="del-fmea" data-fmea="${f.id}">${icon('trash')}</button>
       </div></td>
@@ -1130,10 +1135,10 @@ function tabTimeline(i) {
   const rows = events.map(ev => `<tr>
     <td class="mono" style="white-space:nowrap">${esc(fmtDateTimeSec(ev.timestamp))}</td>
     <td>${timelineChip(ev.category)}</td>
-    <td><strong>${esc(ev.title)}</strong>${ev.detail ? `<div class="dim" style="font-size:12.5px;margin-top:4px">${esc(ev.detail)}</div>` : ''}${renderAttachments(i.id, 'timeline', ev.id, true)}</td>
+    <td><strong>${esc(ev.title)}</strong>${ev.detail ? `<div class="dim" style="font-size:12.5px;margin-top:4px">${esc(ev.detail)}</div>` : ''}${renderAttachments(i.id, 'timeline', ev.id, true)}${renderLinkedCapas(i.id, `timeline:${ev.id}`, `[Timeline ${fmtDateTimeSec(ev.timestamp)}] ${ev.title}`)}</td>
     <td class="muted">${esc(ev.source || '—')}</td>
     <td class="no-print"><div class="chip-row">
-      <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-type="corrective" data-desc="${esc(`[Timeline ${fmtDateTimeSec(ev.timestamp)}] ${ev.title}`)}">${icon('plus')} CAPA</button>
+      <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="timeline:${ev.id}" data-type="corrective" data-desc="${esc(`[Timeline ${fmtDateTimeSec(ev.timestamp)}] ${ev.title}`)}">${icon('plus')} CAPA</button>
       <button class="btn btn-ghost btn-sm" data-action="edit-timeline" data-tl="${ev.id}">${icon('edit')}</button>
       <button class="btn btn-ghost btn-sm" data-action="del-timeline" data-tl="${ev.id}">${icon('trash')}</button>
     </div></td>
@@ -1520,8 +1525,8 @@ function rcaForm(i) {
   };
 }
 
-function modalCapaSection(invId, action, idAttrs, matchPrefix, specificPrefix) {
-  const existing = getLinkedCapas(invId, matchPrefix, specificPrefix);
+function modalCapaSection(invId, action, idAttrs, sourceRef, matchPrefix, specificPrefix) {
+  const existing = getLinkedCapas(invId, sourceRef, matchPrefix, specificPrefix);
   return `<div class="prompt-box" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <div style="flex:1;min-width:200px">
       <div class="prompt-box-title" style="margin-bottom:2px">CAPA Plan Actions${existing.length ? ` (${existing.length})` : ''}</div>
@@ -1564,7 +1569,7 @@ function whyForm(invId, node, parentId, level) {
       ${field('Question', `<input class="input" name="question" value="${esc(d.question)}" placeholder="Why did…" required>`)}
       ${field('Finding', `<textarea class="textarea" name="answer" placeholder="State the verified physical, control, or process finding…">${esc(d.answer)}</textarea>`)}
       ${field('Evidence (required to verify root cause)', `<input class="input" name="evidence" value="${esc(d.evidence)}" placeholder="COMTRADE record, SOE log, borescope photo ID, SAP BOM…">`)}
-      ${modalCapaSection(invId, 'save-why-capa', whyAttrs, node ? `[5 Whys L${node.level}]` : '', node ? `[5 Whys L${node.level}] ${(node.answer || node.question || '').slice(0, 30)}` : '')}`,
+      ${modalCapaSection(invId, 'save-why-capa', whyAttrs, node ? `whys:${node.id}` : '', node ? `[5 Whys L${node.level}]` : '', node ? `[5 Whys L${node.level}] ${(node.answer || node.question || '').slice(0, 30)}` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn" data-action="save-why-capa" ${whyAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-why" ${whyAttrs}>${icon('check')} Save</button>`,
@@ -1590,7 +1595,7 @@ function ishForm(invId, cause, presetVector, presetPrompt) {
       </div>
       ${field('Cause', `<input class="input" name="cause" value="${esc(d.cause)}" placeholder="Short cause headline…" required>`)}
       ${field('Technical detail', `<textarea class="textarea" name="detail" placeholder="Specific component, condition, or observation…">${esc(d.detail)}</textarea>`)}
-      ${modalCapaSection(invId, 'save-ish-capa', ishAttrs, cause ? `[${VECTOR[cause.vector] || cause.vector}] ${cause.cause}` : '')}`,
+      ${modalCapaSection(invId, 'save-ish-capa', ishAttrs, cause ? `ishikawa:${cause.id}` : '', cause ? `[${VECTOR[cause.vector] || cause.vector}] ${cause.cause}` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn" data-action="save-ish-capa" ${ishAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-ish" ${ishAttrs}>${icon('check')} Save</button>`,
@@ -1634,7 +1639,7 @@ function fmeaForm(invId, item) {
         ${field('Detection (1–10)', score('detection', d.detection), '1 = Certain alarm · 10 = Undetected')}
       </div>
       <div class="fmea-live" id="fmeaLiveBox">${fmeaLiveHtml(d.severity, d.occurrence, d.detection)}</div>
-      ${modalCapaSection(invId, 'save-fmea-capa', fmeaAttrs, item ? `[FMEA ${item.component}` : '')}`,
+      ${modalCapaSection(invId, 'save-fmea-capa', fmeaAttrs, item ? `fmea:${item.id}` : '', item ? `[FMEA ${item.component}` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn" data-action="save-fmea-capa" ${fmeaAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-fmea" ${fmeaAttrs}>${icon('check')} Save</button>`,
@@ -1649,11 +1654,13 @@ function capaForm(invId, item, preset) {
     target_date: null,
     status: 'open',
     verification_notes: '',
+    source_ref: (preset && preset.source_ref) || '',
   };
   const roots = byInv('five_whys_nodes', invId).filter(n => n.is_root_cause);
   return {
     eyebrow: 'CAPA plan', title: item ? 'Edit action' : 'Add action', width: 'wide',
     body: `
+      <input type="hidden" name="source_ref" value="${esc(d.source_ref || '')}">
       ${roots.length ? `<div class="prompt-box">
         <div class="prompt-box-title">Verified Root Cause(s) to address</div>
         <div style="font-size:12.5px;color:var(--ink-2)">${roots.map(r => `• ${esc(r.answer || r.question)}`).join('<br>')}</div>
@@ -1696,7 +1703,7 @@ function timelineForm(invId, ev) {
       </div>
       ${field('Event headline', `<input class="input" name="title" value="${esc(d.title)}" placeholder="Stage-2 SF6 lockout trip on CB-04…" required>`)}
       ${field('Technical detail / evidence', `<textarea class="textarea" name="detail" placeholder="Measured values, alarm states, or field observations…">${esc(d.detail)}</textarea>`)}
-      ${modalCapaSection(invId, 'save-timeline-capa', tlAttrs, ev ? `[Timeline ${fmtDateTimeSec(ev.timestamp)}]` : '')}`,
+      ${modalCapaSection(invId, 'save-timeline-capa', tlAttrs, ev ? `timeline:${ev.id}` : '', ev ? `[Timeline ${fmtDateTimeSec(ev.timestamp)}]` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn" data-action="save-timeline-capa" ${tlAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-timeline" ${tlAttrs}>${icon('check')} Save</button>`,
@@ -2045,6 +2052,7 @@ const ACTIONS = {
     openModal(capaForm(el.dataset.id, null, {
       type: 'corrective',
       description: `[Timeline ${fmtDateTimeSec(savedRow.timestamp)}] ${savedRow.title}`,
+      source_ref: `timeline:${savedRow.id}`,
     }));
   },
   'del-timeline': (el) => confirmDo('Delete this timeline event?', () => {
@@ -2109,6 +2117,7 @@ const ACTIONS = {
     openModal(capaForm(el.dataset.id, null, {
       type: savedNode.is_root_cause ? 'preventive' : 'corrective',
       description: `[5 Whys L${savedNode.level}] ${savedNode.answer || savedNode.question}`,
+      source_ref: `whys:${savedNode.id}`,
     }));
   },
   'del-why': (el) => {
@@ -2138,6 +2147,7 @@ const ACTIONS = {
     openModal(capaForm(el.dataset.id, null, {
       type: savedIsh.is_primary ? 'preventive' : 'corrective',
       description: `[${VECTOR[savedIsh.vector] || savedIsh.vector}] ${savedIsh.cause}${savedIsh.detail ? ' — ' + savedIsh.detail : ''}`,
+      source_ref: `ishikawa:${savedIsh.id}`,
     }));
   },
   'del-ish': (el) => confirmDo('Delete this cause?', () => {
@@ -2163,6 +2173,7 @@ const ACTIONS = {
     openModal(capaForm(el.dataset.id, null, {
       type: rpn >= 100 ? 'preventive' : 'corrective',
       description: `[FMEA ${savedFmea.component} · RPN ${rpn}] Mitigate ${savedFmea.failure_mode || savedFmea.component}`,
+      source_ref: `fmea:${savedFmea.id}`,
     }));
   },
   'del-fmea': (el) => confirmDo('Delete this failure mode?', () => {
@@ -2176,10 +2187,11 @@ const ACTIONS = {
   'add-capa': (el) => openModal(capaForm(el.dataset.id, null, {
     type: el.dataset.type || 'corrective',
     description: el.dataset.desc || '',
+    source_ref: el.dataset.ref || '',
   })),
   'edit-capa': (el) => { const c = DB.capa_actions.find(x => x.id === el.dataset.capa); if (c) openModal(capaForm(c.investigation_id, c)); },
   'save-capa': (el) => {
-    const v = collect(['type','description','owner','status','verification_notes']);
+    const v = collect(['type','description','owner','status','verification_notes','source_ref']);
     if (!v.description) { toast('An action description is required'); return; }
     v.target_date = fromDateInput(document.querySelector('[name="target_date"]').value);
     let savedCapa;
