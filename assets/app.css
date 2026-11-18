@@ -872,6 +872,74 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   line-height: 1.5;
 }
 
+/* ---------- attachments ---------- */
+
+.att-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.att-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-alt);
+  color: var(--ink);
+  font-size: 12px;
+  max-width: 260px;
+}
+.att-chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+.att-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  min-width: 0;
+  text-align: left;
+}
+.att-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.att-size { color: var(--ink-3); font-size: 11px; flex: none; }
+.att-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  flex: none;
+}
+.att-del {
+  background: none;
+  border: 0;
+  padding: 2px;
+  color: var(--ink-3);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+}
+.att-del:hover { color: var(--red); background: var(--red-soft); }
+.att-preview-img {
+  max-width: 100%;
+  max-height: 60dvh;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  display: block;
+  margin: 0 auto 12px;
+}
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 1080px) {

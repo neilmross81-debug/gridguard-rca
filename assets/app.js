@@ -106,6 +106,7 @@ const ICONS = {
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+  paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
 };
 
 const fmtDate = (iso) => {
@@ -216,6 +217,7 @@ function seed() {
       { id: 'tl-4', investigation_id: INV, timestamp: '2026-11-14T04:00:20.000Z', category: 'action', source: 'Control Room / Field Crew', title: 'SCADA RTU restored; offshore HV team dispatched', detail: 'Charger A recovery stabilised DC bus; ultrasonic leak detector confirmed 1,400 ppm SF6 at Phase B flange.' },
       { id: 'tl-5', investigation_id: INV, timestamp: '2026-11-15T18:10:00.000Z', category: 'recovery', source: 'Offshore HV Tech', title: 'Manifold resurfaced, Viton O-ring fitted & Bay 04 re-energised', detail: 'SF6 topped up to 0.64 MPa; sniffer check < 5 ppm prior to energisation.' },
     ],
+    attachments: [],
     app_settings: {},
   };
 }
@@ -228,7 +230,7 @@ function load() {
     if (!raw) { DB = seed(); save(); return DB; }
     const parsed = JSON.parse(raw);
     DB = Object.assign(seed(), parsed);
-    ['investigations','five_whys_nodes','ishikawa_causes','fmea_items','capa_actions','timeline_events'].forEach(k => {
+    ['investigations','five_whys_nodes','ishikawa_causes','fmea_items','capa_actions','timeline_events','attachments'].forEach(k => {
       if (!Array.isArray(DB[k])) DB[k] = [];
     });
     if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
@@ -239,7 +241,18 @@ function load() {
   }
 }
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) { toast('Could not save locally — storage may be full'); }
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(DB));
+  } catch (e) {
+    try {
+      const slim = Object.assign({}, DB, {
+        attachments: (DB.attachments || []).map(a => Object.assign({}, a, { data_url: '' })),
+      });
+      localStorage.setItem(STORE_KEY, JSON.stringify(slim));
+    } catch (e2) {
+      toast('Local cache full — attachments will still sync to Supabase');
+    }
+  }
   pushWebhook();
 }
 const invById = (id) => DB.investigations.find(i => i.id === id);
@@ -250,7 +263,7 @@ const capasByStatus = (s) => DB.capa_actions.filter(c => c.status === s);
 
 const SUPABASE_URL = 'https://nhhtxfimvlapqlbvcrlz.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_5gmDFx3BwVPjNBxjobriDQ_LpDxDAnl';
-const SB_TABLES = ['investigations', 'timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions'];
+const SB_TABLES = ['investigations', 'timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions', 'attachments'];
 const SB_MIGRATED_KEY = 'gridguard_supabase_migrated_v1';
 
 let syncState = { status: 'syncing', text: 'Syncing…', detail: 'Connecting to Supabase…' };
@@ -751,6 +764,37 @@ function tabBody(i, tab) {
   return tabOverview(i);
 }
 
+function fmtBytes(b) {
+  const n = Number(b || 0);
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderAttachments(invId, area, recordId, showAddBtn = true) {
+  const list = (DB.attachments || []).filter(a => a.investigation_id === invId && a.area === area && a.record_id === recordId);
+  if (!list.length && !showAddBtn) return '';
+  const chips = list.map(a => {
+    const isImg = /^image\//i.test(a.mime_type || '') && a.data_url;
+    const iconHtml = isImg
+      ? `<img class="att-thumb" src="${esc(a.data_url)}" alt="">`
+      : icon('paperclip');
+    return `<span class="att-chip">
+      <button type="button" class="att-open" data-action="view-attachment" data-att="${a.id}" title="${esc(a.caption || a.file_name)}">
+        ${iconHtml}
+        <span class="att-name">${esc(a.file_name)}</span>
+        <span class="att-size">${fmtBytes(a.size_bytes)}</span>
+      </button>
+      <button type="button" class="att-del no-print" data-action="del-attachment" data-att="${a.id}" title="Remove attachment" aria-label="Remove attachment">×</button>
+    </span>`;
+  }).join('');
+
+  const addBtn = showAddBtn
+    ? `<button type="button" class="btn btn-ghost btn-sm no-print" data-action="add-attachment" data-id="${invId}" data-area="${area}" data-record="${recordId}">${icon('paperclip')} Attach</button>`
+    : '';
+  return `<div class="att-list">${chips}${addBtn}</div>`;
+}
+
 function tabOverview(i) {
   return `
   <div class="grid-2">
@@ -763,10 +807,22 @@ function tabOverview(i) {
         <div class="section-head"><div><h2 class="h3">Executive summary</h2><p>What happened, and what it cost</p></div></div>
         <div class="card card-pad"><p class="muted" style="margin:0">${esc(i.executive_summary || 'No summary recorded yet.')}</p></div>
       </section>
-      <section class="section" style="margin-bottom:0">
+      <section class="section">
         <div class="section-head"><div><h2 class="h3">Root cause conclusion</h2><p>Verified primary cause</p></div></div>
         <div class="card card-pad" style="border-left:3px solid var(--accent)">
           <p class="muted" style="margin:0">${esc(i.root_cause_conclusion || 'Not yet concluded.')}</p>
+        </div>
+      </section>
+      <section class="section" style="margin-bottom:0">
+        <div class="section-head">
+          <div><h2 class="h3">Attachments &amp; evidence</h2><p>Photos, COMTRADE records, test sheets, and supporting files</p></div>
+          <div class="chip-row no-print">
+            <button class="btn btn-sm" data-action="add-capa" data-id="${i.id}" data-type="corrective" data-desc="${esc(`[Overview ${i.document_code}] `)}">${icon('plus')} Create CAPA</button>
+            <button class="btn btn-primary btn-sm" data-action="add-attachment" data-id="${i.id}" data-area="overview" data-record="${i.id}">${icon('paperclip')} Attach file</button>
+          </div>
+        </div>
+        <div class="card card-pad">
+          ${renderAttachments(i.id, 'overview', i.id, false) || '<p class="dim" style="margin:0">No investigation-level attachments yet. You can also attach files directly inside Timeline, 5 Whys, Ishikawa 6M, FMEA, and CAPA items.</p>'}
         </div>
       </section>
     </div>
@@ -790,6 +846,7 @@ function tabOverview(i) {
           ${chip(byInv('ishikawa_causes', i.id).length + ' 6M causes', 'slate')}
           ${chip(byInv('fmea_items', i.id).length + ' failure modes', 'slate')}
           ${chip(byInv('capa_actions', i.id).length + ' actions', 'slate')}
+          ${chip(byInv('attachments', i.id).length + ' attachments', 'slate')}
         </div>
       </div>
     </section>
@@ -817,6 +874,7 @@ function whyCard(n, isBranch) {
   const guide = WHY_LEVEL_GUIDE[Math.min(5, Math.max(1, Number(n.level) || 1))];
   const kids = DB.five_whys_nodes.filter(x => x.parent_id === n.id).length;
   const nextGuide = WHY_LEVEL_GUIDE[Math.min(5, (Number(n.level) || 1) + 1)];
+  const capaDesc = `[Why L${n.level}] ${n.answer || n.question}`;
 
   return `<div class="why ${n.is_root_cause ? 'root' : ''} ${isBranch ? 'branch' : ''}">
     <div class="why-head">
@@ -824,6 +882,7 @@ function whyCard(n, isBranch) {
       ${n.is_root_cause ? chip('Verified root cause', 'green') : ''}
       ${isBranch ? chip('Contributing branch', 'amber') : ''}
       <div style="margin-left:auto" class="chip-row no-print">
+        <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${n.investigation_id}" data-type="${n.is_root_cause ? 'preventive' : 'corrective'}" data-desc="${esc(capaDesc)}">${icon('plus')} CAPA</button>
         <button class="btn btn-ghost btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}">${icon('plus')} Branch</button>
         <button class="btn btn-ghost btn-sm" data-action="edit-why" data-why="${n.id}">${icon('edit')}</button>
         <button class="btn btn-ghost btn-sm" data-action="del-why" data-why="${n.id}">${icon('trash')}</button>
@@ -832,6 +891,7 @@ function whyCard(n, isBranch) {
     <div class="why-q">${esc(n.question)}</div>
     ${n.answer ? `<div class="why-a">${esc(n.answer)}</div>` : ''}
     ${n.evidence ? `<div class="why-e"><strong class="dim">Evidence:</strong> ${esc(n.evidence)}</div>` : ''}
+    ${renderAttachments(n.investigation_id, 'whys', n.id, true)}
     ${!n.is_root_cause && kids === 0 ? `<div class="why-nudge no-print">
       <span><strong>Keep drilling (${esc(nextGuide.stage)}):</strong> ${esc(nextGuide.prompt)}</span>
       <button class="btn btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}">${icon('plus')} Ask Why L${(n.level || 1) + 1}</button>
@@ -909,7 +969,9 @@ function tabIshikawa(i) {
       <ul>${items.map(c => `<li>
         <strong>${c.is_primary ? '<span style="color:var(--red)">◆ </span>' : ''}${esc(c.cause)}</strong>
         ${esc(c.detail || '')}
+        ${renderAttachments(i.id, 'ishikawa', c.id, true)}
         <div class="chip-row no-print" style="margin-top:7px">
+          <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-type="${c.is_primary ? 'preventive' : 'corrective'}" data-desc="${esc(`[${VECTOR[c.vector] || c.vector}] ${c.cause}${c.detail ? ' — ' + c.detail : ''}`)}">${icon('plus')} CAPA</button>
           <button class="btn btn-ghost btn-sm" data-action="edit-ish" data-ish="${c.id}">${icon('edit')}</button>
           <button class="btn btn-ghost btn-sm" data-action="del-ish" data-ish="${c.id}">${icon('trash')}</button>
         </div>
@@ -934,7 +996,7 @@ function tabFmea(i) {
     const [band, tone] = riskBand(rpn);
     const pct = Math.min(100, (rpn / 1000) * 100);
     return `<tr>
-      <td><strong>${esc(f.component)}</strong><div class="dim" style="font-size:12.5px;margin-top:3px">${esc(f.failure_mode)}</div></td>
+      <td><strong>${esc(f.component)}</strong><div class="dim" style="font-size:12.5px;margin-top:3px">${esc(f.failure_mode)}</div>${renderAttachments(i.id, 'fmea', f.id, true)}</td>
       <td class="muted">${esc(f.potential_effect)}</td>
       <td class="muted">${esc(f.current_controls || '—')}</td>
       <td class="num">${f.severity}</td>
@@ -948,6 +1010,7 @@ function tabFmea(i) {
         </div>
       </td>
       <td class="no-print"><div class="chip-row">
+        <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-type="${rpn >= 100 ? 'preventive' : 'corrective'}" data-desc="${esc(`[FMEA ${f.component} · RPN ${rpn}] Mitigate ${f.failure_mode}`)}">${icon('plus')} CAPA</button>
         <button class="btn btn-ghost btn-sm" data-action="edit-fmea" data-fmea="${f.id}">${icon('edit')}</button>
         <button class="btn btn-ghost btn-sm" data-action="del-fmea" data-fmea="${f.id}">${icon('trash')}</button>
       </div></td>
@@ -979,7 +1042,7 @@ function tabCapa(i) {
     const overdue = c.target_date && new Date(c.target_date) < new Date() && !['verified', 'closed'].includes(c.status);
     return `<tr>
       <td>${chip(CAPA_TYPE[c.type] || c.type, c.type === 'preventive' ? 'cyan' : 'accent')}</td>
-      <td><strong>${esc(c.description)}</strong>${c.verification_notes ? `<div class="dim" style="font-size:12.5px;margin-top:5px">Verification: ${esc(c.verification_notes)}</div>` : ''}</td>
+      <td><strong>${esc(c.description)}</strong>${c.verification_notes ? `<div class="dim" style="font-size:12.5px;margin-top:5px">Verification: ${esc(c.verification_notes)}</div>` : ''}${renderAttachments(i.id, 'capa', c.id, true)}</td>
       <td class="muted">${esc(c.owner || '—')}</td>
       <td class="muted">${fmtDate(c.target_date)}</td>
       <td>${overdue ? chip('Overdue', 'red') : capaChip(c.status)}</td>
@@ -1040,9 +1103,10 @@ function tabTimeline(i) {
   const rows = events.map(ev => `<tr>
     <td class="mono" style="white-space:nowrap">${esc(fmtDateTimeSec(ev.timestamp))}</td>
     <td>${timelineChip(ev.category)}</td>
-    <td><strong>${esc(ev.title)}</strong>${ev.detail ? `<div class="dim" style="font-size:12.5px;margin-top:4px">${esc(ev.detail)}</div>` : ''}</td>
+    <td><strong>${esc(ev.title)}</strong>${ev.detail ? `<div class="dim" style="font-size:12.5px;margin-top:4px">${esc(ev.detail)}</div>` : ''}${renderAttachments(i.id, 'timeline', ev.id, true)}</td>
     <td class="muted">${esc(ev.source || '—')}</td>
     <td class="no-print"><div class="chip-row">
+      <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-type="corrective" data-desc="${esc(`[Timeline ${fmtDateTimeSec(ev.timestamp)}] ${ev.title}`)}">${icon('plus')} CAPA</button>
       <button class="btn btn-ghost btn-sm" data-action="edit-timeline" data-tl="${ev.id}">${icon('edit')}</button>
       <button class="btn btn-ghost btn-sm" data-action="del-timeline" data-tl="${ev.id}">${icon('trash')}</button>
     </div></td>
@@ -1143,6 +1207,20 @@ function tabReport(i) {
         <td class="muted">${esc(c.owner || '—')}</td><td class="muted">${fmtDate(c.target_date)}</td>
         <td>${(CAPA_STATUS[c.status] || {}).label || esc(c.status)}</td></tr>`).join('') || '<tr><td colspan="5" class="dim">No actions raised.</td></tr>'}
     </tbody></table>
+
+    <h2>9. Attachments &amp; evidence</h2>
+    ${(() => {
+      const atts = byInv('attachments', i.id);
+      if (!atts.length) return '<p class="dim">No attachments uploaded.</p>';
+      return `<table class="table"><thead><tr><th>Area</th><th>File</th><th>Caption</th><th>Size</th></tr></thead><tbody>
+        ${atts.map(a => `<tr>
+          <td>${esc(a.area)}</td>
+          <td><strong>${esc(a.file_name)}</strong>${/^image\//i.test(a.mime_type || '') && a.data_url ? `<div style="margin-top:6px"><img src="${esc(a.data_url)}" alt="${esc(a.file_name)}" style="max-width:220px;max-height:140px;border-radius:4px;border:1px solid var(--line)"></div>` : ''}</td>
+          <td class="muted">${esc(a.caption || '—')}</td>
+          <td class="muted">${fmtBytes(a.size_bytes)}</td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    })()}
 
     <div class="divider"></div>
     <p class="dim" style="font-size:12.5px">
@@ -1444,6 +1522,7 @@ function whyForm(invId, node, parentId, level) {
       ${field('Finding', `<textarea class="textarea" name="answer" placeholder="State the verified physical, control, or process finding…">${esc(d.answer)}</textarea>`)}
       ${field('Evidence (required to verify root cause)', `<input class="input" name="evidence" value="${esc(d.evidence)}" placeholder="COMTRADE record, SOE log, borescope photo ID, SAP BOM…">`)}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn" data-action="save-why-capa" data-id="${invId}" data-why="${node ? node.id : ''}" data-parent="${parentId || ''}">${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-why" data-id="${invId}" data-why="${node ? node.id : ''}" data-parent="${parentId || ''}">${icon('check')} Save</button>`,
   };
 }
@@ -1467,6 +1546,7 @@ function ishForm(invId, cause, presetVector, presetPrompt) {
       ${field('Cause', `<input class="input" name="cause" value="${esc(d.cause)}" placeholder="Short cause headline…" required>`)}
       ${field('Technical detail', `<textarea class="textarea" name="detail" placeholder="Specific component, condition, or observation…">${esc(d.detail)}</textarea>`)}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn" data-action="save-ish-capa" data-id="${invId}" data-ish="${cause ? cause.id : ''}">${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-ish" data-id="${invId}" data-ish="${cause ? cause.id : ''}">${icon('check')} Save</button>`,
   };
 }
@@ -1508,12 +1588,20 @@ function fmeaForm(invId, item) {
       </div>
       <div class="fmea-live" id="fmeaLiveBox">${fmeaLiveHtml(d.severity, d.occurrence, d.detection)}</div>`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn" data-action="save-fmea-capa" data-id="${invId}" data-fmea="${item ? item.id : ''}">${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-fmea" data-id="${invId}" data-fmea="${item ? item.id : ''}">${icon('check')} Save</button>`,
   };
 }
 
-function capaForm(invId, item) {
-  const d = item || { type: 'corrective', description: '', owner: '', target_date: null, status: 'open', verification_notes: '' };
+function capaForm(invId, item, preset) {
+  const d = item || {
+    type: (preset && preset.type) || 'corrective',
+    description: (preset && preset.description) || '',
+    owner: '',
+    target_date: null,
+    status: 'open',
+    verification_notes: '',
+  };
   const roots = byInv('five_whys_nodes', invId).filter(n => n.is_root_cause);
   return {
     eyebrow: 'CAPA plan', title: item ? 'Edit action' : 'Add action', width: 'wide',
@@ -1560,7 +1648,56 @@ function timelineForm(invId, ev) {
       ${field('Event headline', `<input class="input" name="title" value="${esc(d.title)}" placeholder="Stage-2 SF6 lockout trip on CB-04…" required>`)}
       ${field('Technical detail / evidence', `<textarea class="textarea" name="detail" placeholder="Measured values, alarm states, or field observations…">${esc(d.detail)}</textarea>`)}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn" data-action="save-timeline-capa" data-id="${invId}" data-tl="${ev ? ev.id : ''}">${icon('plus')} Save &amp; Add CAPA</button>
            <button class="btn btn-primary" data-action="save-timeline" data-id="${invId}" data-tl="${ev ? ev.id : ''}">${icon('check')} Save</button>`,
+  };
+}
+
+const AREA_LABELS = {
+  overview: 'Overview',
+  timeline: 'Sequence of events',
+  whys: '5 Whys',
+  ishikawa: 'Ishikawa 6M',
+  fmea: 'FMEA',
+  capa: 'CAPA plan',
+};
+
+function attachmentModal(invId, area, recordId) {
+  const areaLabel = AREA_LABELS[area] || area;
+  return {
+    eyebrow: `Attachment · ${areaLabel}`,
+    title: 'Attach file or photo',
+    body: `
+      ${field('Select file (max 5 MB)', `<input class="input" type="file" id="attFileInput" accept="image/*,.pdf,.csv,.xlsx,.xls,.txt,.log,.doc,.docx">`, 'Photos, COMTRADE/SCADA exports, PDFs, or test records. Synced to Supabase for all team members.')}
+      ${field('Caption / description (optional)', `<input class="input" name="att_caption" placeholder="e.g. Breaker SF6 gauge reading, field photo, test certificate…">`)}`,
+    foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn btn-primary" data-action="save-attachment" data-id="${invId}" data-area="${esc(area)}" data-record="${esc(recordId)}">${icon('paperclip')} Upload &amp; attach</button>`,
+  };
+}
+
+function previewAttachmentModal(att) {
+  const areaLabel = AREA_LABELS[att.area] || att.area;
+  const isImg = /^image\//i.test(att.mime_type || '') && att.data_url;
+  const isPdf = /^application\/pdf/i.test(att.mime_type || '') && att.data_url;
+  return {
+    eyebrow: `Attachment · ${areaLabel}`,
+    title: att.file_name,
+    width: 'wide',
+    body: `
+      <div class="muted" style="font-size:12.5px;margin-bottom:10px">
+        ${fmtBytes(att.size_bytes)} · ${esc(att.mime_type || 'file')}${att.created_at ? ' · ' + fmtDateTime(att.created_at) : ''}
+      </div>
+      ${att.caption ? `<p style="margin:0 0 12px">${esc(att.caption)}</p>` : ''}
+      ${isImg
+        ? `<img class="att-preview-img" src="${esc(att.data_url)}" alt="${esc(att.file_name)}">`
+        : isPdf
+          ? `<iframe src="${esc(att.data_url)}" style="width:100%;height:420px;border:1px solid var(--line);border-radius:var(--r-sm)"></iframe>`
+          : att.data_url
+            ? `<p class="muted" style="margin:0">Preview is not available for this file type. Use Download below to open it.</p>`
+            : `<p class="muted" style="margin:0">File content is not cached locally — click Sync in the top bar to refresh from Supabase.</p>`}`,
+    foot: `<button class="btn btn-danger" data-action="del-attachment" data-att="${att.id}">Remove</button>
+           ${att.data_url ? `<a class="btn" href="${esc(att.data_url)}" download="${esc(att.file_name)}">Download</a>` : ''}
+           <button class="btn btn-primary" data-action="close-modal">Close</button>`,
   };
 }
 
@@ -1729,7 +1866,7 @@ function settingsModal() {
         <p class="muted" style="font-size:13.5px;margin:0 0 16px">
           ${DB.investigations.length} investigations · ${DB.timeline_events.length} timeline events · ${DB.five_whys_nodes.length} why levels ·
           ${DB.ishikawa_causes.length} 6M causes · ${DB.fmea_items.length} failure modes ·
-          ${DB.capa_actions.length} actions
+          ${DB.capa_actions.length} actions · ${(DB.attachments || []).length} attachments
         </p>
         <div class="chip-row">
           <button class="btn btn-sm" data-action="export-json">Export JSON</button>
@@ -1754,6 +1891,76 @@ function collect(names) {
   return out;
 }
 
+function saveTimelineFromModal(el) {
+  const v = collect(['category','source','title','detail']);
+  if (!v.title) { toast('An event headline is required'); return null; }
+  const dv = document.querySelector('[name="ev_date"]')?.value;
+  const tv = document.querySelector('[name="ev_time"]')?.value;
+  v.timestamp = fromDateTimeInput(dv, tv);
+  let savedRow;
+  if (el.dataset.tl) {
+    savedRow = DB.timeline_events.find(x => x.id === el.dataset.tl);
+    Object.assign(savedRow, v);
+  } else {
+    savedRow = Object.assign({ id: uid('tl'), investigation_id: el.dataset.id }, v);
+    DB.timeline_events.push(savedRow);
+  }
+  touchInv(el.dataset.id); save(); sbUpsert('timeline_events', savedRow); sbTouchInv(el.dataset.id);
+  return savedRow;
+}
+
+function saveWhyFromModal(el) {
+  const v = collect(['question','answer','evidence','level','is_root_cause']);
+  if (!v.question) { toast('A question is required'); return null; }
+  if (Number(v.is_root_cause) === 1 && !v.evidence) {
+    toast('Add supporting evidence (log, photo, test record) to verify a root cause');
+    return null;
+  }
+  const node = { level: Number(v.level) || 1, question: v.question, answer: v.answer, evidence: v.evidence, is_root_cause: Number(v.is_root_cause) || 0 };
+  let savedNode;
+  if (el.dataset.why) {
+    savedNode = DB.five_whys_nodes.find(x => x.id === el.dataset.why);
+    Object.assign(savedNode, node);
+  } else {
+    savedNode = Object.assign({ id: uid('w'), investigation_id: el.dataset.id, parent_id: el.dataset.parent || null, sort_order: DB.five_whys_nodes.length + 1 }, node);
+    DB.five_whys_nodes.push(savedNode);
+  }
+  touchInv(el.dataset.id); save(); sbUpsert('five_whys_nodes', savedNode); sbTouchInv(el.dataset.id);
+  return savedNode;
+}
+
+function saveIshFromModal(el) {
+  const v = collect(['vector','cause','detail','is_primary']);
+  if (!v.cause) { toast('A cause is required'); return null; }
+  v.is_primary = Number(v.is_primary) || 0;
+  let savedIsh;
+  if (el.dataset.ish) {
+    savedIsh = DB.ishikawa_causes.find(x => x.id === el.dataset.ish);
+    Object.assign(savedIsh, v);
+  } else {
+    savedIsh = Object.assign({ id: uid('ish'), investigation_id: el.dataset.id }, v);
+    DB.ishikawa_causes.push(savedIsh);
+  }
+  touchInv(el.dataset.id); save(); sbUpsert('ishikawa_causes', savedIsh); sbTouchInv(el.dataset.id);
+  return savedIsh;
+}
+
+function saveFmeaFromModal(el) {
+  const v = collect(['component','failure_mode','potential_effect','potential_cause','current_controls','severity','occurrence','detection']);
+  if (!v.component) { toast('A component is required'); return null; }
+  ['severity','occurrence','detection'].forEach(k => v[k] = Number(v[k]) || 1);
+  let savedFmea;
+  if (el.dataset.fmea) {
+    savedFmea = DB.fmea_items.find(x => x.id === el.dataset.fmea);
+    Object.assign(savedFmea, v);
+  } else {
+    savedFmea = Object.assign({ id: uid('fmea'), investigation_id: el.dataset.id }, v);
+    DB.fmea_items.push(savedFmea);
+  }
+  touchInv(el.dataset.id); save(); sbUpsert('fmea_items', savedFmea); sbTouchInv(el.dataset.id);
+  return savedFmea;
+}
+
 /* ---------- actions ---------- */
 
 const ACTIONS = {
@@ -1764,9 +1971,9 @@ const ACTIONS = {
   'del-rca': (el) => {
     const i = invById(el.dataset.id);
     if (!i) return;
-    confirmDo(`Delete ${i.document_code} and all of its timeline events, why levels, causes, failure modes and actions?`, () => {
-      ['timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions'].forEach(c => {
-        DB[c] = DB[c].filter(r => r.investigation_id !== i.id);
+    confirmDo(`Delete ${i.document_code} and all of its timeline events, why levels, causes, failure modes, actions and attachments?`, () => {
+      ['timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions', 'attachments'].forEach(c => {
+        DB[c] = (DB[c] || []).filter(r => r.investigation_id !== i.id);
       });
       DB.investigations = DB.investigations.filter(x => x.id !== i.id);
       save(); sbDelete('investigations', i.id); go('#/investigations'); render(); toast('Investigation deleted');
@@ -1776,21 +1983,18 @@ const ACTIONS = {
   'add-timeline': (el) => openModal(timelineForm(el.dataset.id, null)),
   'edit-timeline': (el) => { const ev = DB.timeline_events.find(x => x.id === el.dataset.tl); if (ev) openModal(timelineForm(ev.investigation_id, ev)); },
   'save-timeline': (el) => {
-    const v = collect(['category','source','title','detail']);
-    if (!v.title) { toast('An event headline is required'); return; }
-    const dv = document.querySelector('[name="ev_date"]')?.value;
-    const tv = document.querySelector('[name="ev_time"]')?.value;
-    v.timestamp = fromDateTimeInput(dv, tv);
-    let savedRow;
-    if (el.dataset.tl) {
-      savedRow = DB.timeline_events.find(x => x.id === el.dataset.tl);
-      Object.assign(savedRow, v);
-    } else {
-      savedRow = Object.assign({ id: uid('tl'), investigation_id: el.dataset.id }, v);
-      DB.timeline_events.push(savedRow);
-    }
-    touchInv(el.dataset.id); save(); sbUpsert('timeline_events', savedRow); sbTouchInv(el.dataset.id);
+    const savedRow = saveTimelineFromModal(el);
+    if (!savedRow) return;
     closeModal(); render(); toast('Timeline event saved');
+  },
+  'save-timeline-capa': (el) => {
+    const savedRow = saveTimelineFromModal(el);
+    if (!savedRow) return;
+    closeModal(); render();
+    openModal(capaForm(el.dataset.id, null, {
+      type: 'corrective',
+      description: `[Timeline ${fmtDateTimeSec(savedRow.timestamp)}] ${savedRow.title}`,
+    }));
   },
   'del-timeline': (el) => confirmDo('Delete this timeline event?', () => {
     const ev = DB.timeline_events.find(x => x.id === el.dataset.tl);
@@ -1843,23 +2047,18 @@ const ACTIONS = {
     if (n) openModal(whyForm(n.investigation_id, n, n.parent_id, n.level));
   },
   'save-why': (el) => {
-    const v = collect(['question','answer','evidence','level','is_root_cause']);
-    if (!v.question) { toast('A question is required'); return; }
-    if (Number(v.is_root_cause) === 1 && !v.evidence) {
-      toast('Add supporting evidence (log, photo, test record) to verify a root cause');
-      return;
-    }
-    const node = { level: Number(v.level) || 1, question: v.question, answer: v.answer, evidence: v.evidence, is_root_cause: Number(v.is_root_cause) || 0 };
-    let savedNode;
-    if (el.dataset.why) {
-      savedNode = DB.five_whys_nodes.find(x => x.id === el.dataset.why);
-      Object.assign(savedNode, node);
-    } else {
-      savedNode = Object.assign({ id: uid('w'), investigation_id: el.dataset.id, parent_id: el.dataset.parent || null, sort_order: DB.five_whys_nodes.length + 1 }, node);
-      DB.five_whys_nodes.push(savedNode);
-    }
-    touchInv(el.dataset.id); save(); sbUpsert('five_whys_nodes', savedNode); sbTouchInv(el.dataset.id);
+    const savedNode = saveWhyFromModal(el);
+    if (!savedNode) return;
     closeModal(); render(); toast('Why level saved');
+  },
+  'save-why-capa': (el) => {
+    const savedNode = saveWhyFromModal(el);
+    if (!savedNode) return;
+    closeModal(); render();
+    openModal(capaForm(el.dataset.id, null, {
+      type: savedNode.is_root_cause ? 'preventive' : 'corrective',
+      description: `[5 Whys L${savedNode.level}] ${savedNode.answer || savedNode.question}`,
+    }));
   },
   'del-why': (el) => {
     const ids = [el.dataset.why];
@@ -1877,19 +2076,18 @@ const ACTIONS = {
   'add-ish-prompt': (el) => openModal(ishForm(el.dataset.id, null, el.dataset.vector || null, el.dataset.prompt || null)),
   'edit-ish': (el) => { const c = DB.ishikawa_causes.find(x => x.id === el.dataset.ish); if (c) openModal(ishForm(c.investigation_id, c)); },
   'save-ish': (el) => {
-    const v = collect(['vector','cause','detail','is_primary']);
-    if (!v.cause) { toast('A cause is required'); return; }
-    v.is_primary = Number(v.is_primary) || 0;
-    let savedIsh;
-    if (el.dataset.ish) {
-      savedIsh = DB.ishikawa_causes.find(x => x.id === el.dataset.ish);
-      Object.assign(savedIsh, v);
-    } else {
-      savedIsh = Object.assign({ id: uid('ish'), investigation_id: el.dataset.id }, v);
-      DB.ishikawa_causes.push(savedIsh);
-    }
-    touchInv(el.dataset.id); save(); sbUpsert('ishikawa_causes', savedIsh); sbTouchInv(el.dataset.id);
+    const savedIsh = saveIshFromModal(el);
+    if (!savedIsh) return;
     closeModal(); render(); toast('Cause saved');
+  },
+  'save-ish-capa': (el) => {
+    const savedIsh = saveIshFromModal(el);
+    if (!savedIsh) return;
+    closeModal(); render();
+    openModal(capaForm(el.dataset.id, null, {
+      type: savedIsh.is_primary ? 'preventive' : 'corrective',
+      description: `[${VECTOR[savedIsh.vector] || savedIsh.vector}] ${savedIsh.cause}${savedIsh.detail ? ' — ' + savedIsh.detail : ''}`,
+    }));
   },
   'del-ish': (el) => confirmDo('Delete this cause?', () => {
     const c = DB.ishikawa_causes.find(x => x.id === el.dataset.ish);
@@ -1902,19 +2100,19 @@ const ACTIONS = {
   'add-fmea': (el) => openModal(fmeaForm(el.dataset.id, null)),
   'edit-fmea': (el) => { const f = DB.fmea_items.find(x => x.id === el.dataset.fmea); if (f) openModal(fmeaForm(f.investigation_id, f)); },
   'save-fmea': (el) => {
-    const v = collect(['component','failure_mode','potential_effect','potential_cause','current_controls','severity','occurrence','detection']);
-    if (!v.component) { toast('A component is required'); return; }
-    ['severity','occurrence','detection'].forEach(k => v[k] = Number(v[k]) || 1);
-    let savedFmea;
-    if (el.dataset.fmea) {
-      savedFmea = DB.fmea_items.find(x => x.id === el.dataset.fmea);
-      Object.assign(savedFmea, v);
-    } else {
-      savedFmea = Object.assign({ id: uid('fmea'), investigation_id: el.dataset.id }, v);
-      DB.fmea_items.push(savedFmea);
-    }
-    touchInv(el.dataset.id); save(); sbUpsert('fmea_items', savedFmea); sbTouchInv(el.dataset.id);
+    const savedFmea = saveFmeaFromModal(el);
+    if (!savedFmea) return;
     closeModal(); render(); toast('Failure mode saved');
+  },
+  'save-fmea-capa': (el) => {
+    const savedFmea = saveFmeaFromModal(el);
+    if (!savedFmea) return;
+    const rpn = savedFmea.severity * savedFmea.occurrence * savedFmea.detection;
+    closeModal(); render();
+    openModal(capaForm(el.dataset.id, null, {
+      type: rpn >= 100 ? 'preventive' : 'corrective',
+      description: `[FMEA ${savedFmea.component} · RPN ${rpn}] Mitigate ${savedFmea.failure_mode || savedFmea.component}`,
+    }));
   },
   'del-fmea': (el) => confirmDo('Delete this failure mode?', () => {
     const f = DB.fmea_items.find(x => x.id === el.dataset.fmea);
@@ -1924,7 +2122,10 @@ const ACTIONS = {
     render(); toast('Deleted');
   }),
 
-  'add-capa': (el) => openModal(capaForm(el.dataset.id, null)),
+  'add-capa': (el) => openModal(capaForm(el.dataset.id, null, {
+    type: el.dataset.type || 'corrective',
+    description: el.dataset.desc || '',
+  })),
   'edit-capa': (el) => { const c = DB.capa_actions.find(x => x.id === el.dataset.capa); if (c) openModal(capaForm(c.investigation_id, c)); },
   'save-capa': (el) => {
     const v = collect(['type','description','owner','status','verification_notes']);
@@ -1947,6 +2148,47 @@ const ACTIONS = {
     if (c) touchInv(c.investigation_id);
     save(); sbDelete('capa_actions', el.dataset.capa); if (c) sbTouchInv(c.investigation_id);
     render(); toast('Deleted');
+  }),
+
+  'add-attachment': (el) => openModal(attachmentModal(el.dataset.id, el.dataset.area || 'overview', el.dataset.record || el.dataset.id)),
+  'save-attachment': (el) => {
+    const inp = document.getElementById('attFileInput');
+    const file = inp && inp.files && inp.files[0];
+    if (!file) { toast('Please select a file'); return; }
+    if (file.size > 5 * 1024 * 1024) { toast('File exceeds 5 MB limit'); return; }
+    const caption = (document.querySelector('#modalHost [name="att_caption"]')?.value || '').trim();
+    const reader = new FileReader();
+    reader.onload = () => {
+      const att = {
+        id: uid('att'),
+        investigation_id: el.dataset.id,
+        area: el.dataset.area || 'overview',
+        record_id: el.dataset.record || el.dataset.id,
+        file_name: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        size_bytes: file.size,
+        caption,
+        data_url: reader.result,
+        created_at: new Date().toISOString(),
+      };
+      if (!Array.isArray(DB.attachments)) DB.attachments = [];
+      DB.attachments.push(att);
+      touchInv(el.dataset.id); save(); sbUpsert('attachments', att); sbTouchInv(el.dataset.id);
+      closeModal(); render(); toast('Attachment saved');
+    };
+    reader.onerror = () => toast('Failed to read file');
+    reader.readAsDataURL(file);
+  },
+  'view-attachment': (el) => {
+    const att = (DB.attachments || []).find(x => x.id === el.dataset.att);
+    if (att) openModal(previewAttachmentModal(att));
+  },
+  'del-attachment': (el) => confirmDo('Remove this attachment?', () => {
+    const att = (DB.attachments || []).find(x => x.id === el.dataset.att);
+    DB.attachments = (DB.attachments || []).filter(x => x.id !== el.dataset.att);
+    if (att) touchInv(att.investigation_id);
+    save(); sbDelete('attachments', el.dataset.att); if (att) sbTouchInv(att.investigation_id);
+    render(); toast('Attachment removed');
   }),
 
   'print': () => window.print(),
