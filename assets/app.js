@@ -168,7 +168,17 @@ function seed() {
         id: 'usr-demo',
         username: 'demo',
         password: 'demo',
-        full_name: 'Demo Administrator',
+        full_name: 'Demo Editor (OSP-01)',
+        role_title: 'OSP-01 HV Operations Engineer',
+        is_global_admin: 0,
+        site_roles: { 'site-osp1': 'editor' },
+        assigned_rcas: [],
+      },
+      {
+        id: 'usr-admin',
+        username: 'admin',
+        password: 'demo',
+        full_name: 'Global Administrator',
         role_title: 'Global HV Operations Admin',
         is_global_admin: 1,
         site_roles: { 'site-osp1': 'admin', 'site-rampion': 'admin', 'site-thames': 'admin' },
@@ -653,9 +663,9 @@ function viewLanding() {
         </form>
         <div class="login-quick">
           <span>Quick switch role:</span>
-          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="demo" data-pass="demo">Admin (demo)</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="editor" data-pass="demo">Editor</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="demo" data-pass="demo">Editor (demo)</button>
           <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="viewer" data-pass="demo">Viewer</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="admin" data-pass="demo">Admin</button>
         </div>
       </div>
 
