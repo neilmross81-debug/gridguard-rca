@@ -769,6 +769,87 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .fmea-live-score { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .fmea-rubric { font-size: 12px; color: var(--ink-3); margin-top: 4px; line-height: 1.4; }
 
+/* ---------- visual event timeline ---------- */
+
+.timeline {
+  position: relative;
+  margin: 16px 0 8px;
+  padding-left: 28px;
+}
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--line-strong);
+  border-radius: 2px;
+}
+.tl-item {
+  position: relative;
+  margin-bottom: 14px;
+  break-inside: avoid;
+}
+.tl-item:last-child { margin-bottom: 0; }
+.tl-dot {
+  position: absolute;
+  left: -25px;
+  top: 14px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 0 3px var(--bg);
+}
+.tl-dot.tone-red   { border-color: var(--red); }
+.tl-dot.tone-amber { border-color: var(--amber); }
+.tl-dot.tone-cyan  { border-color: var(--cyan); }
+.tl-dot.tone-green { border-color: var(--green); }
+.tl-dot.tone-slate { border-color: var(--slate); }
+.tl-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 13px 16px;
+}
+.tl-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.tl-time {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+}
+.tl-source {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-left: auto;
+}
+.tl-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.tl-detail {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 1080px) {
@@ -814,7 +895,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   body { background: #fff; color: #111; }
   .nav, .page-actions, .tabs, .toast-host, .no-print, .journey, .coach-banner, .ish-drawer { display: none !important; }
   .wrap { max-width: none; padding: 0; }
-  .card, .why, .ish { border-color: #ccc; box-shadow: none; background: #fff; }
+  .card, .why, .ish, .tl-card { border-color: #ccc; box-shadow: none; background: #fff; }
+  .tl-dot { box-shadow: 0 0 0 3px #fff; }
   .report h2 { color: #111; border-color: #ccc; }
   .report p, .muted, .dim { color: #333 !important; }
 }

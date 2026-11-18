@@ -65,8 +65,17 @@ const CAPA_STATUS = {
   closed:     { label: 'Closed',      tone: 'green' },
 };
 
+const TIMELINE_CAT = {
+  trigger:   { label: 'Trip / Fault',      tone: 'red'   },
+  telemetry: { label: 'SCADA / Alarm',     tone: 'amber' },
+  action:    { label: 'Operator / Field',  tone: 'cyan'  },
+  recovery:  { label: 'Restoration',       tone: 'green' },
+  note:      { label: 'Observation',       tone: 'slate' },
+};
+
 const TAB_LABELS = [
   ['overview',  'Overview'],
+  ['timeline',  'Timeline'],
   ['whys',      '5 Whys'],
   ['ishikawa',  'Ishikawa 6M'],
   ['fmea',      'FMEA'],
@@ -109,16 +118,34 @@ const fmtDateTime = (iso) => {
   if (isNaN(d)) return '—';
   return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC';
 };
+const fmtDateTimeSec = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' }) + ' UTC';
+};
 const toDateInput = (iso) => {
   if (!iso) return '';
   const d = new Date(iso);
   return isNaN(d) ? '' : d.toISOString().slice(0, 10);
 };
+const toTimeInput = (iso) => {
+  if (!iso) return '00:00:00';
+  const d = new Date(iso);
+  return isNaN(d) ? '00:00:00' : d.toISOString().slice(11, 19);
+};
 const fromDateInput = (v) => (v ? new Date(v + 'T00:00:00.000Z').toISOString() : null);
+const fromDateTimeInput = (dv, tv) => {
+  if (!dv) return new Date().toISOString();
+  const cleanTime = /^\d{2}:\d{2}(:\d{2})?$/.test(tv || '') ? (tv.length === 5 ? `${tv}:00` : tv) : '00:00:00';
+  const d = new Date(`${dv}T${cleanTime}.000Z`);
+  return isNaN(d) ? new Date().toISOString() : d.toISOString();
+};
 const chip = (label, tone = 'slate') => `<span class="chip chip-${tone}">${esc(label)}</span>`;
 const sevChip = (s) => { const m = SEVERITY[s]; return m ? chip(m.label, m.tone) : chip(s || '—'); };
 const statusChip = (s) => { const m = STATUS[s]; return m ? chip(m.label, m.tone) : chip(s || '—'); };
 const capaChip = (s) => { const m = CAPA_STATUS[s]; return m ? chip(m.label, m.tone) : chip(s || '—'); };
+const timelineChip = (s) => { const m = TIMELINE_CAT[s]; return m ? chip(m.label, m.tone) : chip(s || '—'); };
 
 const rpnOf = (f) => Number(f.severity || 0) * Number(f.occurrence || 0) * Number(f.detection || 0);
 const riskBand = (rpn) => rpn >= 200 ? ['Critical', 'red'] : rpn >= 100 ? ['High', 'amber'] : rpn >= 50 ? ['Medium', 'cyan'] : ['Low', 'green'];
@@ -179,6 +206,13 @@ function seed() {
       { id: 'capa-3', investigation_id: INV, type: 'preventive', description: 'Segregate BMU critical cell-impedance & DC-bus under-voltage alarms to dedicated Priority-1 SCADA DIs across all OSPs.', owner: 'A. Patel (SCADA Architect)', target_date: '2026-12-05T00:00:00.000', status: 'open', verification_notes: 'IEC 61850 ICD/CID update drafted for review.' },
       { id: 'capa-4', investigation_id: INV, type: 'preventive', description: 'Update PM-OSP-220-02 to mandate semi-annual UV/salt-ingress inspection on all GIS sensor glands & update SAP BOM to C5-M.', owner: 'H. Lindqvist (Lead HV Ops Eng)', target_date: '2026-12-15T00:00:00.000', status: 'open', verification_notes: 'Pending Change Control Board approval.' },
     ],
+    timeline_events: [
+      { id: 'tl-1', investigation_id: INV, timestamp: '2026-11-14T03:38:15.000Z', category: 'telemetry', source: 'SCADA / RTU', title: 'Stage-1 SF6 low-density warning on Bay 04 Phase B', detail: 'Compartment pressure crossed 0.56 MPa warning threshold; common minor alarm grouped under existing charger fan alert.' },
+      { id: 'tl-2', investigation_id: INV, timestamp: '2026-11-14T03:42:11.000Z', category: 'trigger', source: 'Relay P543 / COMTRADE #4419', title: 'Stage-2 SF6 lockout trip on CB-04 (240 MW curtailment)', detail: 'Pressure fell below 0.52 MPa; protection relay executed breaker trip and isolated Export Transformer TX-02.' },
+      { id: 'tl-3', investigation_id: INV, timestamp: '2026-11-14T03:42:12.000Z', category: 'telemetry', source: 'PQ Analyser / Aux DC Bus A', title: '110V DC bus sag to 84.2V DC & RTU telemetry loss', detail: 'Trip coil energisation sagged Battery Bank B (3 high-impedance cells), dropping IEC 61850 MMS comms for 18 minutes.' },
+      { id: 'tl-4', investigation_id: INV, timestamp: '2026-11-14T04:00:20.000Z', category: 'action', source: 'Control Room / Field Crew', title: 'SCADA RTU restored; offshore HV team dispatched', detail: 'Charger A recovery stabilised DC bus; ultrasonic leak detector confirmed 1,400 ppm SF6 at Phase B flange.' },
+      { id: 'tl-5', investigation_id: INV, timestamp: '2026-11-15T18:10:00.000Z', category: 'recovery', source: 'Offshore HV Tech', title: 'Manifold resurfaced, Viton O-ring fitted & Bay 04 re-energised', detail: 'SF6 topped up to 0.64 MPa; sniffer check < 5 ppm prior to energisation.' },
+    ],
     app_settings: {},
   };
 }
@@ -191,7 +225,7 @@ function load() {
     if (!raw) { DB = seed(); save(); return DB; }
     const parsed = JSON.parse(raw);
     DB = Object.assign(seed(), parsed);
-    ['investigations','five_whys_nodes','ishikawa_causes','fmea_items','capa_actions'].forEach(k => {
+    ['investigations','five_whys_nodes','ishikawa_causes','fmea_items','capa_actions','timeline_events'].forEach(k => {
       if (!Array.isArray(DB[k])) DB[k] = [];
     });
     if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
@@ -570,6 +604,7 @@ function viewRca(id, tab) {
 }
 
 function tabBody(i, tab) {
+  if (tab === 'timeline') return tabTimeline(i);
   if (tab === 'whys')     return tabWhys(i);
   if (tab === 'ishikawa') return tabIshikawa(i);
   if (tab === 'fmea')     return tabFmea(i);
@@ -608,6 +643,7 @@ function tabOverview(i) {
         </dl>
         <div class="divider"></div>
         <div class="chip-row">
+          ${chip(byInv('timeline_events', i.id).length + ' timeline events', 'slate')}
           ${chip(byInv('five_whys_nodes', i.id).length + ' why levels', 'slate')}
           ${chip(byInv('ishikawa_causes', i.id).length + ' 6M causes', 'slate')}
           ${chip(byInv('fmea_items', i.id).length + ' failure modes', 'slate')}
@@ -836,7 +872,61 @@ function tabCapa(i) {
   </div>`;
 }
 
+function renderVisualTimeline(events) {
+  if (!events.length) return '<p class="dim">No sequence-of-events records added.</p>';
+  return `<div class="timeline">
+    ${events.map(ev => {
+      const cat = TIMELINE_CAT[ev.category] || TIMELINE_CAT.note;
+      return `<div class="tl-item">
+        <span class="tl-dot tone-${cat.tone}"></span>
+        <div class="tl-card">
+          <div class="tl-head">
+            <span class="tl-time">${esc(fmtDateTimeSec(ev.timestamp))}</span>
+            ${timelineChip(ev.category)}
+            ${ev.source ? `<span class="tl-source">${esc(ev.source)}</span>` : ''}
+          </div>
+          <div class="tl-title">${esc(ev.title)}</div>
+          ${ev.detail ? `<div class="tl-detail">${esc(ev.detail)}</div>` : ''}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function tabTimeline(i) {
+  const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+  const rows = events.map(ev => `<tr>
+    <td class="mono" style="white-space:nowrap">${esc(fmtDateTimeSec(ev.timestamp))}</td>
+    <td>${timelineChip(ev.category)}</td>
+    <td><strong>${esc(ev.title)}</strong>${ev.detail ? `<div class="dim" style="font-size:12.5px;margin-top:4px">${esc(ev.detail)}</div>` : ''}</td>
+    <td class="muted">${esc(ev.source || '—')}</td>
+    <td class="no-print"><div class="chip-row">
+      <button class="btn btn-ghost btn-sm" data-action="edit-timeline" data-tl="${ev.id}">${icon('edit')}</button>
+      <button class="btn btn-ghost btn-sm" data-action="del-timeline" data-tl="${ev.id}">${icon('trash')}</button>
+    </div></td>
+  </tr>`).join('') || `<tr><td colspan="5"><div class="empty"><strong>No timeline events recorded</strong>Add SOE, SCADA alarm, trip, and restoration timestamps to build the incident timeline.</div></td></tr>`;
+
+  return `
+  <div class="section-head">
+    <div><h2 class="h3">Sequence of events table</h2><p>Log chronological timestamps (UTC) — automatically visualised as a timeline here and in the Report</p></div>
+    <button class="btn btn-primary btn-sm" data-action="add-timeline" data-id="${i.id}">${icon('plus')} Add event</button>
+  </div>
+  <div class="card table-scroll" style="margin-bottom:28px">
+    <table class="table table-wide">
+      <thead><tr><th>Timestamp (UTC)</th><th>Category</th><th>Event &amp; detail</th><th>Source / System</th><th class="no-print"></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>
+
+  <div class="section-head">
+    <div><h2 class="h3">Visual timeline preview</h2><p>Rendered in the audit report in chronological order</p></div>
+    <button class="btn btn-sm" data-tab="report">${icon('print')} Open in report</button>
+  </div>
+  ${renderVisualTimeline(events)}`;
+}
+
 function tabReport(i) {
+  const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
   const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const ish = byInv('ishikawa_causes', i.id);
   const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
@@ -867,12 +957,15 @@ function tabReport(i) {
     <h2>1. Executive summary</h2>
     <p>${esc(i.executive_summary || '—')}</p>
 
-    <h2>2. 5 Whys interrogative chain</h2>
+    <h2>2. Sequence of events timeline</h2>
+    ${renderVisualTimeline(events)}
+
+    <h2>3. 5 Whys interrogative chain</h2>
     ${whys.map(n => `<p><strong>Why L${n.level}${n.is_root_cause ? ' — verified root cause' : ''}:</strong> ${esc(n.question)}<br>
       <span class="muted">Finding: ${esc(n.answer || '—')}</span><br>
       <span class="dim">Evidence: ${esc(n.evidence || '—')}</span></p>`).join('') || '<p class="dim">No chain recorded.</p>'}
 
-    <h2>3. Ishikawa 6M breakdown</h2>
+    <h2>4. Ishikawa 6M breakdown</h2>
     <table class="table"><thead><tr><th>6M vector</th><th>Identified causes</th></tr></thead><tbody>
       ${Object.keys(VECTOR).map(v => {
         const items = ish.filter(c => c.vector === v);
@@ -881,7 +974,7 @@ function tabReport(i) {
       }).join('') || '<tr><td colspan="2" class="dim">No causes recorded.</td></tr>'}
     </tbody></table>
 
-    <h2>4. FMEA matrix</h2>
+    <h2>5. FMEA matrix</h2>
     <table class="table"><thead><tr><th>Component</th><th>Failure mode</th><th>Potential effect</th><th class="num">S</th><th class="num">O</th><th class="num">D</th><th class="num">RPN</th><th>Risk</th></tr></thead><tbody>
       ${fmea.map(f => { const [band, tone] = riskBand(rpnOf(f)); return `<tr>
         <td><strong>${esc(f.component)}</strong></td><td class="muted">${esc(f.failure_mode)}</td><td class="muted">${esc(f.potential_effect)}</td>
@@ -889,10 +982,10 @@ function tabReport(i) {
         <td class="num"><strong>${rpnOf(f)}</strong></td><td>${band}</td></tr>`; }).join('') || '<tr><td colspan="8" class="dim">No failure modes assessed.</td></tr>'}
     </tbody></table>
 
-    <h2>5. Root cause conclusion</h2>
+    <h2>6. Root cause conclusion</h2>
     <p><strong>${esc(i.root_cause_conclusion || 'Not yet concluded.')}</strong></p>
 
-    <h2>6. Corrective &amp; preventive action plan</h2>
+    <h2>7. Corrective &amp; preventive action plan</h2>
     <table class="table"><thead><tr><th>Type</th><th>Action &amp; verification</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody>
       ${capas.map(c => `<tr>
         <td>${esc(CAPA_TYPE[c.type] || c.type)}</td>
@@ -1288,6 +1381,33 @@ function capaForm(invId, item) {
   };
 }
 
+function timelineForm(invId, ev) {
+  const inv = invById(invId);
+  const d = ev || {
+    timestamp: (inv && inv.incident_date) || new Date().toISOString(),
+    category: 'trigger',
+    source: '',
+    title: '',
+    detail: '',
+  };
+  return {
+    eyebrow: 'Sequence of events', title: ev ? 'Edit timeline event' : 'Add timeline event', width: 'wide',
+    body: `
+      <div class="form-grid">
+        ${field('Date (UTC)', `<input class="input" type="date" name="ev_date" value="${toDateInput(d.timestamp)}" required>`)}
+        ${field('Time (HH:MM:SS UTC)', `<input class="input mono" type="time" step="1" name="ev_time" value="${toTimeInput(d.timestamp)}">`)}
+      </div>
+      <div class="form-grid">
+        ${field('Category', select('category', optsFrom(TIMELINE_CAT), d.category))}
+        ${field('Source / System', `<input class="input" name="source" value="${esc(d.source)}" placeholder="Relay P543 / SCADA / Field Tech">`)}
+      </div>
+      ${field('Event headline', `<input class="input" name="title" value="${esc(d.title)}" placeholder="Stage-2 SF6 lockout trip on CB-04…" required>`)}
+      ${field('Technical detail / evidence', `<textarea class="textarea" name="detail" placeholder="Measured values, alarm states, or field observations…">${esc(d.detail)}</textarea>`)}`,
+    foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn btn-primary" data-action="save-timeline" data-id="${invId}" data-tl="${ev ? ev.id : ''}">${icon('check')} Save</button>`,
+  };
+}
+
 function settingsModal() {
   const s = DB.app_settings || {};
   return {
@@ -1304,7 +1424,7 @@ function settingsModal() {
       <section>
         <h3 class="h3" style="margin-bottom:6px">Data</h3>
         <p class="muted" style="font-size:13.5px;margin:0 0 16px">
-          ${DB.investigations.length} investigations · ${DB.five_whys_nodes.length} why levels ·
+          ${DB.investigations.length} investigations · ${DB.timeline_events.length} timeline events · ${DB.five_whys_nodes.length} why levels ·
           ${DB.ishikawa_causes.length} 6M causes · ${DB.fmea_items.length} failure modes ·
           ${DB.capa_actions.length} actions
         </p>
@@ -1341,14 +1461,33 @@ const ACTIONS = {
   'del-rca': (el) => {
     const i = invById(el.dataset.id);
     if (!i) return;
-    confirmDo(`Delete ${i.document_code} and all of its why levels, causes, failure modes and actions?`, () => {
-      ['five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions'].forEach(c => {
+    confirmDo(`Delete ${i.document_code} and all of its timeline events, why levels, causes, failure modes and actions?`, () => {
+      ['timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions'].forEach(c => {
         DB[c] = DB[c].filter(r => r.investigation_id !== i.id);
       });
       DB.investigations = DB.investigations.filter(x => x.id !== i.id);
       save(); go('#/investigations'); render(); toast('Investigation deleted');
     });
   },
+
+  'add-timeline': (el) => openModal(timelineForm(el.dataset.id, null)),
+  'edit-timeline': (el) => { const ev = DB.timeline_events.find(x => x.id === el.dataset.tl); if (ev) openModal(timelineForm(ev.investigation_id, ev)); },
+  'save-timeline': (el) => {
+    const v = collect(['category','source','title','detail']);
+    if (!v.title) { toast('An event headline is required'); return; }
+    const dv = document.querySelector('[name="ev_date"]')?.value;
+    const tv = document.querySelector('[name="ev_time"]')?.value;
+    v.timestamp = fromDateTimeInput(dv, tv);
+    if (el.dataset.tl) Object.assign(DB.timeline_events.find(x => x.id === el.dataset.tl), v);
+    else DB.timeline_events.push(Object.assign({ id: uid('tl'), investigation_id: el.dataset.id }, v));
+    touchInv(el.dataset.id); save(); closeModal(); render(); toast('Timeline event saved');
+  },
+  'del-timeline': (el) => confirmDo('Delete this timeline event?', () => {
+    const ev = DB.timeline_events.find(x => x.id === el.dataset.tl);
+    DB.timeline_events = DB.timeline_events.filter(x => x.id !== el.dataset.tl);
+    if (ev) touchInv(ev.investigation_id);
+    save(); render(); toast('Deleted');
+  }),
 
   'save-rca': (el) => {
     const id = el.dataset.id;
