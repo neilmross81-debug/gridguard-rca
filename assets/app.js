@@ -874,7 +874,7 @@ function whyCard(n, isBranch) {
   const guide = WHY_LEVEL_GUIDE[Math.min(5, Math.max(1, Number(n.level) || 1))];
   const kids = DB.five_whys_nodes.filter(x => x.parent_id === n.id).length;
   const nextGuide = WHY_LEVEL_GUIDE[Math.min(5, (Number(n.level) || 1) + 1)];
-  const capaDesc = `[Why L${n.level}] ${n.answer || n.question}`;
+  const capaDesc = `[5 Whys L${n.level}] ${n.answer || n.question}`;
 
   return `<div class="why ${n.is_root_cause ? 'root' : ''} ${isBranch ? 'branch' : ''}">
     <div class="why-head">
@@ -1493,6 +1493,23 @@ function rcaForm(i) {
   };
 }
 
+function modalCapaSection(invId, action, idAttrs, matchPrefix) {
+  const existing = matchPrefix
+    ? byInv('capa_actions', invId).filter(c => (c.description || '').startsWith(matchPrefix))
+    : [];
+  return `<div class="prompt-box" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <div class="prompt-box-title" style="margin-bottom:2px">CAPA Plan Actions${existing.length ? ` (${existing.length})` : ''}</div>
+      <div style="font-size:12.5px;color:var(--ink-2)">
+        ${existing.length
+          ? existing.map(c => `• ${esc(c.description)} <span class="dim">(${esc((CAPA_STATUS[c.status] || {}).label || c.status)})</span>`).join('<br>')
+          : 'Create a Corrective or Preventive action linked to this item.'}
+      </div>
+    </div>
+    <button type="button" class="btn btn-sm" data-action="${action}" ${idAttrs}>${icon('plus')} Add CAPA</button>
+  </div>`;
+}
+
 function whyForm(invId, node, parentId, level) {
   const lvl = Number(level || (node ? node.level : 1)) || 1;
   const d = node || { question: '', answer: '', evidence: '', level: lvl, is_root_cause: lvl >= 5 ? 1 : 0 };
@@ -1500,6 +1517,7 @@ function whyForm(invId, node, parentId, level) {
   const inv = invById(invId);
   const domainPrompts = FAULT_PROMPTS[(inv && inv.fault_category) || 'electrical'] || FAULT_PROMPTS.electrical;
   const parentNode = parentId ? DB.five_whys_nodes.find(x => x.id === parentId) : null;
+  const whyAttrs = `data-id="${invId}" data-why="${node ? node.id : ''}" data-parent="${parentId || ''}"`;
 
   return {
     eyebrow: `5 Whys · Level ${lvl} (${guide.stage})`, title: node ? 'Edit why level' : 'Add why level',
@@ -1520,16 +1538,18 @@ function whyForm(invId, node, parentId, level) {
       </div>
       ${field('Question', `<input class="input" name="question" value="${esc(d.question)}" placeholder="Why did…" required>`)}
       ${field('Finding', `<textarea class="textarea" name="answer" placeholder="State the verified physical, control, or process finding…">${esc(d.answer)}</textarea>`)}
-      ${field('Evidence (required to verify root cause)', `<input class="input" name="evidence" value="${esc(d.evidence)}" placeholder="COMTRADE record, SOE log, borescope photo ID, SAP BOM…">`)}`,
+      ${field('Evidence (required to verify root cause)', `<input class="input" name="evidence" value="${esc(d.evidence)}" placeholder="COMTRADE record, SOE log, borescope photo ID, SAP BOM…">`)}
+      ${modalCapaSection(invId, 'save-why-capa', whyAttrs, node ? `[5 Whys L${node.level}]` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
-           <button class="btn" data-action="save-why-capa" data-id="${invId}" data-why="${node ? node.id : ''}" data-parent="${parentId || ''}">${icon('plus')} Save &amp; Add CAPA</button>
-           <button class="btn btn-primary" data-action="save-why" data-id="${invId}" data-why="${node ? node.id : ''}" data-parent="${parentId || ''}">${icon('check')} Save</button>`,
+           <button class="btn" data-action="save-why-capa" ${whyAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
+           <button class="btn btn-primary" data-action="save-why" ${whyAttrs}>${icon('check')} Save</button>`,
   };
 }
 
 function ishForm(invId, cause, presetVector, presetPrompt) {
   const d = cause || { vector: presetVector || selectedIshVector || 'machine', cause: '', detail: presetPrompt ? `Diagnostic check: ${presetPrompt}` : '', is_primary: 0 };
   const prompts = ISHIKAWA_PROMPTS[d.vector] || [];
+  const ishAttrs = `data-id="${invId}" data-ish="${cause ? cause.id : ''}"`;
   return {
     eyebrow: 'Ishikawa 6M', title: cause ? 'Edit cause' : 'Add cause',
     body: `
@@ -1544,10 +1564,11 @@ function ishForm(invId, cause, presetVector, presetPrompt) {
         ${field('Primary contributor?', select('is_primary', [[0, 'Contributing'], [1, 'Primary']], d.is_primary))}
       </div>
       ${field('Cause', `<input class="input" name="cause" value="${esc(d.cause)}" placeholder="Short cause headline…" required>`)}
-      ${field('Technical detail', `<textarea class="textarea" name="detail" placeholder="Specific component, condition, or observation…">${esc(d.detail)}</textarea>`)}`,
+      ${field('Technical detail', `<textarea class="textarea" name="detail" placeholder="Specific component, condition, or observation…">${esc(d.detail)}</textarea>`)}
+      ${modalCapaSection(invId, 'save-ish-capa', ishAttrs, cause ? `[${VECTOR[cause.vector] || cause.vector}] ${cause.cause}` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
-           <button class="btn" data-action="save-ish-capa" data-id="${invId}" data-ish="${cause ? cause.id : ''}">${icon('plus')} Save &amp; Add CAPA</button>
-           <button class="btn btn-primary" data-action="save-ish" data-id="${invId}" data-ish="${cause ? cause.id : ''}">${icon('check')} Save</button>`,
+           <button class="btn" data-action="save-ish-capa" ${ishAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
+           <button class="btn btn-primary" data-action="save-ish" ${ishAttrs}>${icon('check')} Save</button>`,
   };
 }
 
@@ -1571,6 +1592,7 @@ function fmeaLiveHtml(s, o, d) {
 function fmeaForm(invId, item) {
   const d = item || { component: '', failure_mode: '', potential_effect: '', potential_cause: '', current_controls: '', severity: 5, occurrence: 5, detection: 5 };
   const score = (n, v) => select(n, Array.from({ length: 10 }, (_, k) => [k + 1, String(k + 1)]), v, 'data-fmea-score');
+  const fmeaAttrs = `data-id="${invId}" data-fmea="${item ? item.id : ''}"`;
   return {
     eyebrow: 'FMEA', title: item ? 'Edit failure mode' : 'Add failure mode', width: 'wide',
     body: `
@@ -1586,10 +1608,11 @@ function fmeaForm(invId, item) {
         ${field('Occurrence (1–10)', score('occurrence', d.occurrence), '1 = Remote · 10 = Very frequent')}
         ${field('Detection (1–10)', score('detection', d.detection), '1 = Certain alarm · 10 = Undetected')}
       </div>
-      <div class="fmea-live" id="fmeaLiveBox">${fmeaLiveHtml(d.severity, d.occurrence, d.detection)}</div>`,
+      <div class="fmea-live" id="fmeaLiveBox">${fmeaLiveHtml(d.severity, d.occurrence, d.detection)}</div>
+      ${modalCapaSection(invId, 'save-fmea-capa', fmeaAttrs, item ? `[FMEA ${item.component}` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
-           <button class="btn" data-action="save-fmea-capa" data-id="${invId}" data-fmea="${item ? item.id : ''}">${icon('plus')} Save &amp; Add CAPA</button>
-           <button class="btn btn-primary" data-action="save-fmea" data-id="${invId}" data-fmea="${item ? item.id : ''}">${icon('check')} Save</button>`,
+           <button class="btn" data-action="save-fmea-capa" ${fmeaAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
+           <button class="btn btn-primary" data-action="save-fmea" ${fmeaAttrs}>${icon('check')} Save</button>`,
   };
 }
 
@@ -1634,6 +1657,7 @@ function timelineForm(invId, ev) {
     title: '',
     detail: '',
   };
+  const tlAttrs = `data-id="${invId}" data-tl="${ev ? ev.id : ''}"`;
   return {
     eyebrow: 'Sequence of events', title: ev ? 'Edit timeline event' : 'Add timeline event', width: 'wide',
     body: `
@@ -1646,10 +1670,11 @@ function timelineForm(invId, ev) {
         ${field('Source / System', `<input class="input" name="source" value="${esc(d.source)}" placeholder="Relay P543 / SCADA / Field Tech">`)}
       </div>
       ${field('Event headline', `<input class="input" name="title" value="${esc(d.title)}" placeholder="Stage-2 SF6 lockout trip on CB-04…" required>`)}
-      ${field('Technical detail / evidence', `<textarea class="textarea" name="detail" placeholder="Measured values, alarm states, or field observations…">${esc(d.detail)}</textarea>`)}`,
+      ${field('Technical detail / evidence', `<textarea class="textarea" name="detail" placeholder="Measured values, alarm states, or field observations…">${esc(d.detail)}</textarea>`)}
+      ${modalCapaSection(invId, 'save-timeline-capa', tlAttrs, ev ? `[Timeline ${fmtDateTimeSec(ev.timestamp)}]` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
-           <button class="btn" data-action="save-timeline-capa" data-id="${invId}" data-tl="${ev ? ev.id : ''}">${icon('plus')} Save &amp; Add CAPA</button>
-           <button class="btn btn-primary" data-action="save-timeline" data-id="${invId}" data-tl="${ev ? ev.id : ''}">${icon('check')} Save</button>`,
+           <button class="btn" data-action="save-timeline-capa" ${tlAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
+           <button class="btn btn-primary" data-action="save-timeline" ${tlAttrs}>${icon('check')} Save</button>`,
   };
 }
 
