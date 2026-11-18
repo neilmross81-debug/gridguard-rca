@@ -353,6 +353,7 @@ const capasByStatus = (s) => DB.capa_actions.filter(c => c.status === s);
 
 const SESSION_KEY = 'gridguard_session_v1';
 let activeSiteId = 'all';
+let activeRegion = 'all';
 
 function getSession() {
   try {
@@ -421,7 +422,12 @@ function accessibleInvs() {
   return (DB.investigations || []).filter(i => canAccessInv(u, i));
 }
 function filteredInvs() {
-  return accessibleInvs().filter(i => activeSiteId === 'all' || i.site_id === activeSiteId);
+  return accessibleInvs().filter(i => {
+    const site = siteById(i.site_id);
+    const regionOk = activeRegion === 'all' || (site && site.region === activeRegion);
+    const siteOk = activeSiteId === 'all' || i.site_id === activeSiteId;
+    return regionOk && siteOk;
+  });
 }
 function accessibleCapas() {
   const ids = new Set(accessibleInvs().map(i => i.id));
@@ -444,8 +450,18 @@ function userRoleSummary(user) {
 function siteFilterSelect() {
   const sites = accessibleSites(currentUser());
   if (!sites.length) return '';
-  const opts = [['all', `All accessible sites (${sites.length})`], ...sites.map(s => [s.id, `${s.code} — ${s.name}`])];
-  return `<div style="min-width:240px">${select('active_site', opts, activeSiteId)}</div>`;
+  const regions = Array.from(new Set(sites.map(s => (s.region || '').trim()).filter(Boolean))).sort();
+  if (activeRegion !== 'all' && !regions.includes(activeRegion)) activeRegion = 'all';
+  const regionSites = activeRegion === 'all' ? sites : sites.filter(s => (s.region || '').trim() === activeRegion);
+  if (activeSiteId !== 'all' && !regionSites.some(s => s.id === activeSiteId)) activeSiteId = 'all';
+
+  const regionOpts = [['all', `All regions (${regions.length})`], ...regions.map(r => [r, r])];
+  const siteOpts = [['all', `All sites (${regionSites.length})`], ...regionSites.map(s => [s.id, `${s.code} — ${s.name}`])];
+
+  return `<div class="chip-row" style="gap:8px;flex-wrap:wrap">
+    ${regions.length ? `<div style="min-width:175px">${select('active_region', regionOpts, activeRegion)}</div>` : ''}
+    <div style="min-width:230px">${select('active_site', siteOpts, activeSiteId)}</div>
+  </div>`;
 }
 
 /* ---------- Supabase multi-user cloud sync ---------- */
@@ -1950,7 +1966,7 @@ const optsFrom = (obj) => Object.entries(obj).map(([v, m]) => [v, m.label || m])
 function rcaForm(i) {
   const isNew = !i;
   const editableSites = editableSitesForUser(currentUser());
-  const siteOpts = (editableSites.length ? editableSites : (DB.sites || [])).map(s => [s.id, `${s.code} — ${s.name}`]);
+  const siteOpts = (editableSites.length ? editableSites : (DB.sites || [])).map(s => [s.id, `${s.code} — ${s.name}${s.region ? ` (${s.region})` : ''}`]);
   const defaultSiteId = (i && i.site_id) || (activeSiteId !== 'all' && siteOpts.some(([id]) => id === activeSiteId) ? activeSiteId : (siteOpts[0] ? siteOpts[0][0] : 'site-osp1'));
   const defaultSite = siteById(defaultSiteId);
   const d = i || {
@@ -1968,7 +1984,7 @@ function rcaForm(i) {
     width: 'wide',
     body: `
       <div class="form-grid">
-        ${field('Operational Site', select('site_id', siteOpts, d.site_id || defaultSiteId))}
+        ${field('Operational Site &amp; Region', select('site_id', siteOpts, d.site_id || defaultSiteId))}
         ${field('Document ID', `<input class="input" name="document_code" value="${esc(d.document_code)}" required>`)}
       </div>
       <div class="form-grid">
@@ -2023,6 +2039,10 @@ function rcaForm(i) {
 function siteForm(site) {
   const isNew = !site;
   const d = site || { code: '', name: '', region: '', voltage_class: '' };
+  const regions = Array.from(new Set([
+    'North Sea', 'English Channel', 'Irish Sea', 'South East UK', 'Scotland', 'Onshore Grid',
+    ...(DB.sites || []).map(s => (s.region || '').trim()).filter(Boolean),
+  ])).sort();
   return {
     eyebrow: isNew ? 'New Site' : 'Editing Site',
     title: isNew ? 'Add Operational Site' : `Edit ${d.code}`,
@@ -2032,7 +2052,8 @@ function siteForm(site) {
         ${field('Voltage Class', `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="220 kV / 66 kV">`)}
       </div>
       ${field('Site / Facility Name', `<input class="input" name="site_name" value="${esc(d.name)}" placeholder="North Sea Offshore Substation OSP-02" required>`)}
-      ${field('Region / Location', `<input class="input" name="region" value="${esc(d.region)}" placeholder="North Sea">`)}`,
+      ${field('Region / Location', `<input class="input" name="region" list="regionPresets" value="${esc(d.region)}" placeholder="Select or type a region…">
+        <datalist id="regionPresets">${regions.map(r => `<option value="${esc(r)}">`).join('')}</datalist>`)}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn btn-primary" data-action="save-site" data-site="${site ? site.id : ''}">${icon('check')} ${isNew ? 'Create site' : 'Save changes'}</button>`,
   };
@@ -2639,6 +2660,7 @@ const ACTIONS = {
       return;
     }
     setSession(user.id);
+    activeRegion = 'all';
     activeSiteId = 'all';
     if (!location.hash || location.hash === '#/') go('#/');
     render();
@@ -2656,6 +2678,7 @@ const ACTIONS = {
   },
   'logout': () => {
     clearSession();
+    activeRegion = 'all';
     activeSiteId = 'all';
     closeModal();
     go('#/');
@@ -2664,7 +2687,7 @@ const ACTIONS = {
   },
 
   'add-site': () => {
-    if (!currentUser()?.is_global_admin) { toast('Global Admin access required'); return; }
+    if (!canManageAnySite(currentUser())) { toast('Admin access required'); return; }
     openModal(siteForm(null));
   },
   'edit-site': (el) => {
@@ -2674,8 +2697,9 @@ const ACTIONS = {
   },
   'save-site': (el) => {
     const sid = el.dataset.site;
-    if (sid && !canAdminSite(currentUser(), sid)) { toast('Site Admin access required'); return; }
-    if (!sid && !currentUser()?.is_global_admin) { toast('Global Admin access required'); return; }
+    const me = currentUser();
+    if (sid && !canAdminSite(me, sid)) { toast('Site Admin access required'); return; }
+    if (!sid && !canManageAnySite(me)) { toast('Admin access required'); return; }
     const v = collect(['site_code', 'site_name', 'region', 'voltage_class']);
     if (!v.site_code || !v.site_name) { toast('Site code and name are required'); return; }
     const payload = { code: v.site_code, name: v.site_name, region: v.region, voltage_class: v.voltage_class };
@@ -2686,6 +2710,10 @@ const ACTIONS = {
     } else {
       savedSite = Object.assign({ id: uid('site') }, payload);
       DB.sites.push(savedSite);
+      if (me && !me.is_global_admin) {
+        me.site_roles = Object.assign({}, me.site_roles || {}, { [savedSite.id]: 'admin' });
+        sbUpsert('app_users', me);
+      }
     }
     save(); sbUpsert('sites', savedSite); closeModal(); render(); toast('Site saved');
   },
@@ -3170,9 +3198,25 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target.matches('input[name="active_region"]')) {
+    activeRegion = e.target.value || 'all';
+    activeSiteId = 'all';
+    render();
+    return;
+  }
   if (e.target.matches('input[name="active_site"]')) {
     activeSiteId = e.target.value || 'all';
     render();
+    return;
+  }
+  if (e.target.matches('#modalHost input[name="site_id"]')) {
+    const s = siteById(e.target.value);
+    if (s) {
+      const facEl = document.querySelector('#modalHost [name="facility_name"]');
+      if (facEl) facEl.value = s.name || '';
+      const voltEl = document.querySelector('#modalHost [name="voltage_class"]');
+      if (voltEl && !voltEl.value.trim()) voltEl.value = s.voltage_class || '';
+    }
     return;
   }
   if (e.target.matches('[data-fmea-score]')) {
