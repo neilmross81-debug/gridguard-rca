@@ -1527,16 +1527,31 @@ function rcaForm(i) {
 
 function modalCapaSection(invId, action, idAttrs, sourceRef, matchPrefix, specificPrefix) {
   const existing = getLinkedCapas(invId, sourceRef, matchPrefix, specificPrefix);
-  return `<div class="prompt-box" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-    <div style="flex:1;min-width:200px">
-      <div class="prompt-box-title" style="margin-bottom:2px">CAPA Plan Actions${existing.length ? ` (${existing.length})` : ''}</div>
-      <div style="font-size:12.5px;color:var(--ink-2)">
-        ${existing.length
-          ? existing.map(c => `• ${esc(c.description)} <span class="dim">(${esc((CAPA_STATUS[c.status] || {}).label || c.status)})</span>`).join('<br>')
-          : 'Create a Corrective or Preventive action linked to this item.'}
+  return `<div class="prompt-box" style="margin-top:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div>
+        <div class="prompt-box-title" style="margin-bottom:2px">CAPA Plan Actions${existing.length ? ` (${existing.length})` : ''}</div>
+        ${!existing.length ? '<div style="font-size:12.5px;color:var(--ink-2)">Create a Corrective or Preventive action linked to this item.</div>' : ''}
       </div>
+      <button type="button" class="btn btn-sm" data-action="${action}" ${idAttrs}>${icon('plus')} Add CAPA</button>
     </div>
-    <button type="button" class="btn btn-sm" data-action="${action}" ${idAttrs}>${icon('plus')} Add CAPA</button>
+    ${existing.length ? `<div class="linked-capa-list">
+      ${existing.map(c => {
+        const st = (CAPA_STATUS[c.status] || {}).label || c.status;
+        const tone = (CAPA_STATUS[c.status] || {}).tone || 'slate';
+        return `<div class="linked-capa-card">
+          <div class="linked-capa-head">
+            <div class="chip-row">
+              <span class="chip chip-${c.type === 'preventive' ? 'cyan' : 'accent'}">${esc(CAPA_TYPE[c.type] || c.type)}</span>
+              <span class="chip chip-${tone}">${esc(st)}</span>
+              ${c.owner ? `<span class="dim" style="font-size:12px">Owner: ${esc(c.owner)}</span>` : ''}
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="edit-capa" data-capa="${c.id}">${icon('edit')} Edit</button>
+          </div>
+          <div class="linked-capa-desc">${esc(c.description)}</div>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
   </div>`;
 }
 

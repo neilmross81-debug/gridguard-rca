@@ -940,6 +940,42 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   margin: 0 auto 12px;
 }
 
+/* ---------- linked CAPA boxes ---------- */
+
+.linked-capa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.linked-capa-card {
+  background: var(--bg-alt);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.linked-capa-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.linked-capa-desc {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.linked-capa-notes {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 1080px) {
