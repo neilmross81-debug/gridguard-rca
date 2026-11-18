@@ -639,6 +639,273 @@ function parseRoute() {
 }
 const go = (hash) => { location.hash = hash; };
 
+/* ---------- Asana two-way integration (PAT + per-site project mapping) ---------- */
+
+const ASANA_API = 'https://app.asana.com/api/1.0';
+
+function getAsanaCfg() {
+  if (!DB.app_settings) DB.app_settings = {};
+  if (!DB.app_settings.asana) {
+    DB.app_settings.asana = {
+      pat: '',
+      workspace_gid: '',
+      workspace_name: '',
+      user_name: '',
+      auto_push: true,
+      site_projects: {},
+      capa_links: {},
+      projects_cache: [],
+    };
+  }
+  const a = DB.app_settings.asana;
+  if (!a.site_projects) a.site_projects = {};
+  if (!a.capa_links) a.capa_links = {};
+  if (!Array.isArray(a.projects_cache)) a.projects_cache = [];
+  if (typeof a.auto_push !== 'boolean') a.auto_push = true;
+  return a;
+}
+
+function asanaSiteProjectGid(siteId) {
+  if (!siteId) return '';
+  const cfg = getAsanaCfg();
+  const entry = cfg.site_projects[siteId];
+  return typeof entry === 'string' ? entry : (entry?.project_gid || '');
+}
+
+function asanaSetSiteProject(siteId, projectGid, projectName = '') {
+  if (!siteId) return;
+  const cfg = getAsanaCfg();
+  const gid = (projectGid || '').trim();
+  if (!gid) {
+    delete cfg.site_projects[siteId];
+  } else {
+    const cached = cfg.projects_cache.find(p => p.gid === gid);
+    cfg.site_projects[siteId] = {
+      project_gid: gid,
+      project_name: projectName || cached?.name || gid,
+    };
+  }
+}
+
+function asanaCapaLink(capaId) {
+  return getAsanaCfg().capa_links[capaId] || null;
+}
+
+async function asanaFetch(path, opts = {}) {
+  const pat = (getAsanaCfg().pat || '').trim();
+  if (!pat) throw new Error('Asana Personal Access Token is not configured in Settings.');
+  const res = await fetch(`${ASANA_API}${path}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${pat}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(opts.headers || {}),
+    },
+  });
+  const text = await res.text().catch(() => '');
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch (e) {}
+  if (!res.ok) {
+    const msg = json?.errors?.[0]?.message || text || `HTTP ${res.status}`;
+    const err = new Error(`Asana API (${res.status}): ${msg}`);
+    err.status = res.status;
+    throw err;
+  }
+  return json?.data ?? json;
+}
+
+async function asanaTestAndLoad() {
+  const cfg = getAsanaCfg();
+  const me = await asanaFetch('/users/me?opt_fields=gid,name,email,workspaces.gid,workspaces.name');
+  cfg.user_name = me.name || me.email || 'Connected';
+  const workspaces = me.workspaces || [];
+  if (!cfg.workspace_gid || !workspaces.some(w => w.gid === cfg.workspace_gid)) {
+    if (workspaces[0]) {
+      cfg.workspace_gid = workspaces[0].gid;
+      cfg.workspace_name = workspaces[0].name;
+    }
+  } else {
+    const ws = workspaces.find(w => w.gid === cfg.workspace_gid);
+    if (ws) cfg.workspace_name = ws.name;
+  }
+  const allProjects = [];
+  for (const ws of workspaces) {
+    const projs = await asanaFetch(`/projects?workspace=${encodeURIComponent(ws.gid)}&archived=false&opt_fields=gid,name`);
+    (projs || []).forEach(p => {
+      allProjects.push({ gid: p.gid, name: p.name, workspace_gid: ws.gid, workspace_name: ws.name });
+    });
+  }
+  cfg.projects_cache = allProjects;
+  save();
+  return { user: me, workspaces, projects: allProjects };
+}
+
+function asanaTaskPayload(capa) {
+  const inv = invById(capa.investigation_id);
+  const site = inv ? siteById(inv.site_id) : null;
+  const stLabel = (CAPA_STATUS[capa.status] || {}).label || capa.status;
+  const typeLabel = CAPA_TYPE[capa.type] || capa.type;
+  const linkUrl = inv ? `${location.origin}${location.pathname}#/investigations/${inv.id}/capa` : '';
+  const notes = [
+    `GridGuard RCA CAPA Action`,
+    inv ? `RCA: ${inv.document_code} — ${inv.title}` : '',
+    site ? `Site: ${site.code} — ${site.name}${site.region ? ` (${site.region})` : ''}` : '',
+    `Type: ${typeLabel} | Status: ${stLabel}`,
+    `Owner: ${capa.owner || 'Unassigned'}`,
+    capa.source_ref ? `Source: ${capa.source_ref}` : '',
+    capa.verification_notes ? `Verification: ${capa.verification_notes}` : '',
+    linkUrl ? `Open in GridGuard: ${linkUrl}` : '',
+    `[GridGuard-CAPA:${capa.id}]`,
+  ].filter(Boolean).join('\n');
+
+  const data = {
+    name: `${inv ? `[${inv.document_code}] ` : ''}${capa.description}`,
+    completed: ['verified', 'closed'].includes(capa.status),
+    notes,
+  };
+  if (capa.target_date) data.due_on = toDateInput(capa.target_date);
+  else data.due_on = null;
+  return data;
+}
+
+async function asanaPushCapa(capa, silent = false) {
+  const cfg = getAsanaCfg();
+  if (!cfg.pat) {
+    if (!silent) toast('Add your Asana PAT in Settings first');
+    return null;
+  }
+  const inv = invById(capa.investigation_id);
+  const projGid = asanaSiteProjectGid(inv?.site_id);
+  if (!projGid) {
+    if (!silent) {
+      const site = inv ? siteById(inv.site_id) : null;
+      toast(`Map an Asana Project to ${site ? site.code : 'this site'} in Settings or Sites & Users`);
+    }
+    return null;
+  }
+  const payload = asanaTaskPayload(capa);
+  const existing = cfg.capa_links[capa.id];
+  let task = null;
+  if (existing?.task_gid) {
+    try {
+      task = await asanaFetch(`/tasks/${encodeURIComponent(existing.task_gid)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ data: payload }),
+      });
+    } catch (err) {
+      if (err.status !== 404) throw err;
+      delete cfg.capa_links[capa.id];
+    }
+  }
+  if (!task) {
+    task = await asanaFetch('/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ data: { ...payload, projects: [projGid] } }),
+    });
+  }
+  cfg.capa_links[capa.id] = {
+    task_gid: task.gid,
+    project_gid: projGid,
+    permalink_url: task.permalink_url || `https://app.asana.com/0/${projGid}/${task.gid}`,
+    last_synced: new Date().toISOString(),
+  };
+  save();
+  return task;
+}
+
+async function asanaSyncTwoWay(scopeInvId = null) {
+  const cfg = getAsanaCfg();
+  if (!cfg.pat) {
+    toast('Add your Asana Personal Access Token in Settings first');
+    return { pulled: 0, pushed: 0 };
+  }
+  const capasInScope = scopeInvId
+    ? byInv('capa_actions', scopeInvId)
+    : accessibleCapas();
+
+  const siteIds = Array.from(new Set(
+    capasInScope.map(c => invById(c.investigation_id)?.site_id).filter(Boolean)
+  ));
+  const mappedProjects = new Map();
+  siteIds.forEach(sid => {
+    const pg = asanaSiteProjectGid(sid);
+    if (pg) mappedProjects.set(sid, pg);
+  });
+
+  if (!mappedProjects.size) {
+    toast('No accessible sites have an Asana Project mapped yet');
+    return { pulled: 0, pushed: 0 };
+  }
+
+  const tasksByGid = new Map();
+  const tasksByCapaId = new Map();
+  const uniqueProjectGids = Array.from(new Set(mappedProjects.values()));
+
+  for (const projGid of uniqueProjectGids) {
+    const tasks = await asanaFetch(`/projects/${encodeURIComponent(projGid)}/tasks?opt_fields=gid,name,completed,due_on,notes,permalink_url,assignee.name,modified_at`);
+    (tasks || []).forEach(t => {
+      tasksByGid.set(t.gid, { ...t, _project_gid: projGid });
+      const m = String(t.notes || '').match(/\[GridGuard-CAPA:([^\]]+)\]/);
+      if (m) tasksByCapaId.set(m[1], { ...t, _project_gid: projGid });
+    });
+  }
+
+  let pulled = 0;
+  let pushed = 0;
+  const updatedCapas = [];
+
+  for (const c of capasInScope) {
+    const inv = invById(c.investigation_id);
+    const projGid = inv ? mappedProjects.get(inv.site_id) : '';
+    if (!projGid) continue;
+
+    const existingLink = cfg.capa_links[c.id];
+    const matchedTask = (existingLink && tasksByGid.get(existingLink.task_gid)) || tasksByCapaId.get(c.id);
+
+    if (matchedTask) {
+      cfg.capa_links[c.id] = {
+        task_gid: matchedTask.gid,
+        project_gid: matchedTask._project_gid || projGid,
+        permalink_url: matchedTask.permalink_url || `https://app.asana.com/0/${projGid}/${matchedTask.gid}`,
+        last_synced: new Date().toISOString(),
+      };
+      let changed = false;
+      if (matchedTask.completed && ['open', 'inProgress'].includes(c.status)) {
+        c.status = 'verified';
+        changed = true;
+      } else if (!matchedTask.completed && ['verified', 'closed'].includes(c.status)) {
+        c.status = 'inProgress';
+        changed = true;
+      }
+      if (matchedTask.due_on && toDateInput(c.target_date) !== matchedTask.due_on) {
+        c.target_date = fromDateInput(matchedTask.due_on);
+        changed = true;
+      }
+      if (matchedTask.assignee?.name && !c.owner) {
+        c.owner = matchedTask.assignee.name;
+        changed = true;
+      }
+      if (changed) {
+        touchInv(c.investigation_id);
+        updatedCapas.push(c);
+        pulled++;
+      }
+    } else {
+      await asanaPushCapa(c, true);
+      pushed++;
+    }
+  }
+
+  if (updatedCapas.length) {
+    await sbUpsert('capa_actions', updatedCapas);
+    const touchedInvs = Array.from(new Set(updatedCapas.map(c => c.investigation_id)));
+    for (const iid of touchedInvs) sbTouchInv(iid);
+  }
+  save();
+  return { pulled, pushed };
+}
+
 /* ---------- landing / login ---------- */
 
 function viewLanding() {
@@ -1416,12 +1683,18 @@ function tabCapa(i) {
   const items = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
   const highRpn = byInv('fmea_items', i.id).filter(f => rpnOf(f) >= 100);
   const rootWhys = byInv('five_whys_nodes', i.id).filter(n => n.is_root_cause);
+  const asanaCfg = getAsanaCfg();
+  const hasAsana = Boolean(asanaCfg.pat && asanaSiteProjectGid(i.site_id));
 
   const rows = items.map(c => {
     const overdue = c.target_date && new Date(c.target_date) < new Date() && !['verified', 'closed'].includes(c.status);
+    const aLink = asanaCapaLink(c.id);
+    const asanaBadge = aLink
+      ? `<a class="chip chip-cyan" href="${esc(aLink.permalink_url)}" target="_blank" rel="noopener" style="text-decoration:none;margin-left:6px" title="Open linked Asana task">Asana ↗</a>`
+      : (hasAsana && editable ? `<button class="btn btn-ghost btn-sm" data-action="asana-push-capa" data-capa="${c.id}" title="Push to Asana" style="margin-left:4px">↗ Asana</button>` : '');
     return `<tr>
       <td>${chip(CAPA_TYPE[c.type] || c.type, c.type === 'preventive' ? 'cyan' : 'accent')}</td>
-      <td><strong>${esc(c.description)}</strong>${c.verification_notes ? `<div class="dim" style="font-size:12.5px;margin-top:5px">Verification: ${esc(c.verification_notes)}</div>` : ''}${renderAttachments(i.id, 'capa', c.id, true)}</td>
+      <td><strong>${esc(c.description)}</strong>${asanaBadge}${c.verification_notes ? `<div class="dim" style="font-size:12.5px;margin-top:5px">Verification: ${esc(c.verification_notes)}</div>` : ''}${renderAttachments(i.id, 'capa', c.id, true)}</td>
       <td class="muted">${esc(c.owner || '—')}</td>
       <td class="muted">${fmtDate(c.target_date)}</td>
       <td>${overdue ? chip('Overdue', 'red') : capaChip(c.status)}</td>
@@ -1445,7 +1718,10 @@ function tabCapa(i) {
   return `
   <div class="section-head">
     <div><h2 class="h3">Corrective &amp; preventive action plan</h2><p>${open} open · ${done} closed out of ${items.length}</p></div>
-    ${editable ? `<button class="btn btn-sm" data-action="add-capa" data-id="${i.id}">${icon('plus')} Add action</button>` : ''}
+    <div class="chip-row no-print">
+      ${hasAsana ? `<button class="btn btn-sm" data-action="asana-sync" data-inv="${i.id}" title="Two-way sync with Asana">${icon('refresh')} Sync Asana</button>` : ''}
+      ${editable ? `<button class="btn btn-sm" data-action="add-capa" data-id="${i.id}">${icon('plus')} Add action</button>` : ''}
+    </div>
   </div>
   ${capaGuide}
   <div class="card table-scroll">
@@ -1694,14 +1970,20 @@ function viewCapas() {
   if (capaFilter === 'open') list = list.filter(c => ['open', 'inProgress'].includes(c.status));
   else if (capaFilter !== 'all') list = list.filter(c => c.status === capaFilter);
   list.sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
+  const asanaCfg = getAsanaCfg();
 
   const rows = list.map(c => {
     const inv = invById(c.investigation_id);
     const editable = inv ? canEditInv(inv) : false;
     const overdue = c.target_date && new Date(c.target_date) < new Date() && !['verified', 'closed'].includes(c.status);
+    const aLink = asanaCapaLink(c.id);
+    const hasSiteAsana = Boolean(asanaCfg.pat && inv && asanaSiteProjectGid(inv.site_id));
+    const asanaBadge = aLink
+      ? `<a class="chip chip-cyan" href="${esc(aLink.permalink_url)}" target="_blank" rel="noopener" style="text-decoration:none;margin-left:6px" title="Open linked Asana task">Asana ↗</a>`
+      : (hasSiteAsana && editable ? `<button class="btn btn-ghost btn-sm" data-action="asana-push-capa" data-capa="${c.id}" title="Push to Asana" style="margin-left:4px">↗ Asana</button>` : '');
     return `<tr>
       <td>${chip(CAPA_TYPE[c.type] || c.type, c.type === 'preventive' ? 'cyan' : 'accent')}</td>
-      <td><strong>${esc(c.description)}</strong>${c.verification_notes ? `<div class="dim" style="font-size:12.5px;margin-top:5px">${esc(c.verification_notes)}</div>` : ''}</td>
+      <td><strong>${esc(c.description)}</strong>${asanaBadge}${c.verification_notes ? `<div class="dim" style="font-size:12.5px;margin-top:5px">${esc(c.verification_notes)}</div>` : ''}</td>
       <td class="muted">${esc(c.owner || '—')}</td>
       <td class="muted">${inv ? `<button class="btn btn-ghost btn-sm" data-goto="#/investigations/${inv.id}/capa"><span class="mono">${esc(inv.document_code)}</span></button>` : '—'}</td>
       <td class="muted">${fmtDate(c.target_date)}</td>
@@ -1726,7 +2008,10 @@ function viewCapas() {
     </div>
     <div class="page-actions">${siteFilterSelect()}</div>
   </div>
-  <div class="toolbar"><div class="seg" id="capaSeg">${seg}</div></div>
+  <div class="toolbar">
+    <div class="seg" id="capaSeg">${seg}</div>
+    ${asanaCfg.pat ? `<button class="btn btn-sm" data-action="asana-sync" title="Two-way sync CAPAs with Asana">${icon('refresh')} Sync Asana</button>` : `<button class="btn btn-ghost btn-sm" data-action="settings" title="Connect Asana in Settings">Connect Asana…</button>`}
+  </div>
   <div class="card table-scroll">
     <table class="table table-wide">
       <thead><tr><th>Type</th><th>Action &amp; verification</th><th>Owner</th><th>RCA</th><th>Due</th><th>Status</th><th></th></tr></thead>
@@ -2043,6 +2328,12 @@ function siteForm(site) {
     'North Sea', 'English Channel', 'Irish Sea', 'South East UK', 'Scotland', 'Onshore Grid',
     ...(DB.sites || []).map(s => (s.region || '').trim()).filter(Boolean),
   ])).sort();
+  const asanaCfg = getAsanaCfg();
+  const currentProjGid = site ? asanaSiteProjectGid(site.id) : '';
+  const projectOpts = [['', '— Not mapped to Asana —'], ...asanaCfg.projects_cache.map(p => [p.gid, `${p.name} (${p.workspace_name || p.gid})`])];
+  const asanaField = asanaCfg.projects_cache.length
+    ? field('Asana Project (optional)', select('asana_project_gid', projectOpts, currentProjGid), 'CAPAs for this site will sync two-way with the selected Asana project.')
+    : field('Asana Project GID (optional)', `<input class="input mono" name="asana_project_gid" value="${esc(currentProjGid)}" placeholder="1201234567890123">`, 'Load projects in Settings → Asana to pick from a dropdown, or paste an Asana project GID.');
   return {
     eyebrow: isNew ? 'New Site' : 'Editing Site',
     title: isNew ? 'Add Operational Site' : `Edit ${d.code}`,
@@ -2053,7 +2344,8 @@ function siteForm(site) {
       </div>
       ${field('Site / Facility Name', `<input class="input" name="site_name" value="${esc(d.name)}" placeholder="North Sea Offshore Substation OSP-02" required>`)}
       ${field('Region / Location', `<input class="input" name="region" list="regionPresets" value="${esc(d.region)}" placeholder="Select or type a region…">
-        <datalist id="regionPresets">${regions.map(r => `<option value="${esc(r)}">`).join('')}</datalist>`)}`,
+        <datalist id="regionPresets">${regions.map(r => `<option value="${esc(r)}">`).join('')}</datalist>`)}
+      ${asanaField}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn btn-primary" data-action="save-site" data-site="${site ? site.id : ''}">${icon('check')} ${isNew ? 'Create site' : 'Save changes'}</button>`,
   };
@@ -2522,9 +2814,56 @@ function timelineImportModal(invId, rows, fileName) {
 
 function settingsModal() {
   const s = DB.app_settings || {};
+  const a = getAsanaCfg();
+  const sites = accessibleSites(currentUser());
+  const projectOpts = [['', '— Not mapped —'], ...a.projects_cache.map(p => [p.gid, `${p.name} (${p.workspace_name || p.gid})`])];
+  const siteMapRows = sites.map(site => {
+    const cur = asanaSiteProjectGid(site.id);
+    const control = a.projects_cache.length
+      ? select(`asana_site_${site.id}`, projectOpts, cur)
+      : `<input class="input mono" name="asana_site_${site.id}" value="${esc(cur)}" placeholder="Asana Project GID">`;
+    return `<tr>
+      <td><span class="chip chip-slate mono">${esc(site.code)}</span> <span class="muted" style="font-size:12.5px">${esc(site.name)}</span></td>
+      <td style="min-width:220px">${control}</td>
+    </tr>`;
+  }).join('');
+
   return {
-    eyebrow: 'Configuration', title: 'Settings',
+    eyebrow: 'Configuration', title: 'Settings', width: 'wide',
     body: `
+      <section style="margin-bottom:8px">
+        <div class="section-head" style="margin-bottom:8px">
+          <div>
+            <h3 class="h3" style="margin-bottom:4px">Asana Two-Way Integration</h3>
+            <p class="muted" style="font-size:13px;margin:0">Connect with your Asana Personal Access Token (stored in this browser) to sync CAPA actions two-way per operational site.</p>
+          </div>
+          ${a.user_name ? chip(`Connected: ${a.user_name}`, 'green') : chip('Not connected', 'slate')}
+        </div>
+        ${field('Asana Personal Access Token (PAT)',
+          `<div class="chip-row" style="gap:8px;flex-wrap:nowrap">
+            <input class="input mono" type="password" name="asana_pat" value="${esc(a.pat || '')}" placeholder="1/1201234567890:abcdef..." style="flex:1">
+            <button class="btn btn-sm" type="button" data-action="asana-test">${icon('refresh')} Test &amp; Load Projects</button>
+          </div>`,
+          'Generate a PAT in Asana → My Settings → Apps → Developer Console.')}
+        <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:8px 0 14px;cursor:pointer">
+          <input type="checkbox" name="asana_auto_push" ${a.auto_push ? 'checked' : ''}>
+          <span>Auto-push CAPA creations &amp; edits to Asana when the site has a mapped project</span>
+        </label>
+        ${sites.length ? `
+          <div style="margin-bottom:12px">
+            <div class="eyebrow" style="margin-bottom:6px">Per-Site Asana Project Mapping</div>
+            <div class="card table-scroll" style="margin:0">
+              <table class="table">
+                <thead><tr><th>Operational Site</th><th>Asana Project</th></tr></thead>
+                <tbody>${siteMapRows}</tbody>
+              </table>
+            </div>
+          </div>` : ''}
+        <div class="chip-row">
+          <button class="btn btn-sm" type="button" data-action="asana-sync">${icon('refresh')} Sync All Sites with Asana Now</button>
+        </div>
+      </section>
+      <div class="divider"></div>
       <section style="margin-bottom:8px">
         <h3 class="h3" style="margin-bottom:6px">Sync &amp; backup</h3>
         <p class="muted" style="font-size:13.5px;margin:0 0 18px">Data is stored in this browser first and works offline. Add an Apps Script web app URL to mirror every change to your own Google Drive.</p>
@@ -2700,7 +3039,7 @@ const ACTIONS = {
     const me = currentUser();
     if (sid && !canAdminSite(me, sid)) { toast('Site Admin access required'); return; }
     if (!sid && !canManageAnySite(me)) { toast('Admin access required'); return; }
-    const v = collect(['site_code', 'site_name', 'region', 'voltage_class']);
+    const v = collect(['site_code', 'site_name', 'region', 'voltage_class', 'asana_project_gid']);
     if (!v.site_code || !v.site_name) { toast('Site code and name are required'); return; }
     const payload = { code: v.site_code, name: v.site_name, region: v.region, voltage_class: v.voltage_class };
     let savedSite;
@@ -2715,6 +3054,7 @@ const ACTIONS = {
         sbUpsert('app_users', me);
       }
     }
+    asanaSetSiteProject(savedSite.id, v.asana_project_gid || '');
     save(); sbUpsert('sites', savedSite); closeModal(); render(); toast('Site saved');
   },
   'del-site': (el) => {
@@ -3015,12 +3355,21 @@ const ACTIONS = {
     }
     touchInv(el.dataset.id); save(); sbUpsert('capa_actions', savedCapa); sbTouchInv(el.dataset.id);
     closeModal(); render(); toast('Action saved');
+    const aCfg = getAsanaCfg();
+    const inv = invById(el.dataset.id);
+    if (aCfg.pat && aCfg.auto_push && inv && asanaSiteProjectGid(inv.site_id)) {
+      asanaPushCapa(savedCapa, true)
+        .then(t => { if (t) { render(); toast('Action synced to Asana'); } })
+        .catch(err => toast(err.message || 'Asana sync failed'));
+    }
   },
   'del-capa': (el) => {
     const c = DB.capa_actions.find(x => x.id === el.dataset.capa);
     if (!c || !requireEdit(c.investigation_id)) return;
     confirmDo('Delete this action?', () => {
       DB.capa_actions = DB.capa_actions.filter(x => x.id !== el.dataset.capa);
+      const aCfg = getAsanaCfg();
+      if (aCfg.capa_links && aCfg.capa_links[el.dataset.capa]) delete aCfg.capa_links[el.dataset.capa];
       touchInv(c.investigation_id);
       save(); sbDelete('capa_actions', el.dataset.capa); sbTouchInv(c.investigation_id);
       render(); toast('Deleted');
@@ -3078,7 +3427,61 @@ const ACTIONS = {
   'settings': () => openModal(settingsModal()),
   'save-settings': () => {
     DB.app_settings = Object.assign({}, DB.app_settings, collect(['webhook_url']));
-    save(); closeModal(); toast('Settings saved');
+    const a = getAsanaCfg();
+    const patEl = document.querySelector('#modalHost [name="asana_pat"]');
+    if (patEl) a.pat = (patEl.value || '').trim();
+    const autoEl = document.querySelector('#modalHost [name="asana_auto_push"]');
+    if (autoEl) a.auto_push = Boolean(autoEl.checked);
+    accessibleSites(currentUser()).forEach(site => {
+      const pEl = document.querySelector(`#modalHost [name="asana_site_${site.id}"]`);
+      if (pEl) asanaSetSiteProject(site.id, pEl.value);
+    });
+    save(); closeModal(); render(); toast('Settings saved');
+  },
+  'asana-test': async () => {
+    const a = getAsanaCfg();
+    const patEl = document.querySelector('#modalHost [name="asana_pat"]');
+    if (patEl) a.pat = (patEl.value || '').trim();
+    if (!a.pat) { toast('Paste your Asana PAT first'); return; }
+    toast('Connecting to Asana…');
+    try {
+      const res = await asanaTestAndLoad();
+      openModal(settingsModal());
+      toast(`Connected as ${res.user.name || 'Asana user'} · ${res.projects.length} project(s) loaded`);
+    } catch (err) {
+      toast(err.message || 'Could not connect to Asana');
+    }
+  },
+  'asana-sync': async (el) => {
+    const invId = el.dataset.inv || null;
+    if (document.querySelector('#modalHost [name="asana_pat"]')) {
+      const a = getAsanaCfg();
+      a.pat = (document.querySelector('#modalHost [name="asana_pat"]').value || '').trim();
+      accessibleSites(currentUser()).forEach(site => {
+        const pEl = document.querySelector(`#modalHost [name="asana_site_${site.id}"]`);
+        if (pEl) asanaSetSiteProject(site.id, pEl.value);
+      });
+      save();
+    }
+    toast('Syncing two-way with Asana…');
+    try {
+      const { pulled, pushed } = await asanaSyncTwoWay(invId);
+      render();
+      toast(`Asana sync complete: ${pulled} updated from Asana, ${pushed} pushed to Asana`);
+    } catch (err) {
+      toast(err.message || 'Asana sync failed');
+    }
+  },
+  'asana-push-capa': async (el) => {
+    const c = DB.capa_actions.find(x => x.id === el.dataset.capa);
+    if (!c || !requireEdit(c.investigation_id)) return;
+    toast('Pushing action to Asana…');
+    try {
+      const task = await asanaPushCapa(c, false);
+      if (task) { render(); toast('Pushed to Asana'); }
+    } catch (err) {
+      toast(err.message || 'Asana push failed');
+    }
   },
   'sync-now': () => syncFromSupabase(true),
   'export-json': () => {
