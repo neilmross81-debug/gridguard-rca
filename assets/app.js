@@ -801,9 +801,23 @@ function renderLinkedCapas(invId, sourceRef, prefix, specificPrefix) {
   </div>`;
 }
 
-function renderAttachments(invId, area, recordId, showAddBtn = true) {
+function renderLinkedCapaTabs(invId, sourceRef, prefix, specificPrefix) {
+  const list = getLinkedCapas(invId, sourceRef, prefix, specificPrefix);
+  if (!list.length) return '';
+  return list.map(c => {
+    const st = (CAPA_STATUS[c.status] || {}).label || c.status;
+    const tone = (CAPA_STATUS[c.status] || {}).tone || 'slate';
+    return `<button type="button" class="att-chip capa-tab-chip" data-action="edit-capa" data-capa="${c.id}" title="${esc(c.description)}">
+      <span class="chip chip-${c.type === 'preventive' ? 'cyan' : 'accent'}" style="padding:1px 5px;font-size:10px">${esc(CAPA_TYPE[c.type] || c.type)}</span>
+      <span class="att-name">${esc(c.description)}</span>
+      <span class="chip chip-${tone}" style="padding:1px 5px;font-size:10px">${esc(st)}</span>
+    </button>`;
+  }).join('');
+}
+
+function renderAttachments(invId, area, recordId, showAddBtn = true, extraHtml = '') {
   const list = (DB.attachments || []).filter(a => a.investigation_id === invId && a.area === area && a.record_id === recordId);
-  if (!list.length && !showAddBtn) return '';
+  if (!list.length && !showAddBtn && !extraHtml) return '';
   const chips = list.map(a => {
     const isImg = /^image\//i.test(a.mime_type || '') && a.data_url;
     const iconHtml = isImg
@@ -822,7 +836,7 @@ function renderAttachments(invId, area, recordId, showAddBtn = true) {
   const addBtn = showAddBtn
     ? `<button type="button" class="btn btn-ghost btn-sm no-print" data-action="add-attachment" data-id="${invId}" data-area="${area}" data-record="${recordId}">${icon('paperclip')} Attach</button>`
     : '';
-  return `<div class="att-list">${chips}${addBtn}</div>`;
+  return `<div class="att-list">${chips}${addBtn}${extraHtml}</div>`;
 }
 
 function tabOverview(i) {
@@ -921,8 +935,8 @@ function whyCard(n, isBranch) {
     <div class="why-q">${esc(n.question)}</div>
     ${n.answer ? `<div class="why-a">${esc(n.answer)}</div>` : ''}
     ${n.evidence ? `<div class="why-e"><strong class="dim">Evidence:</strong> ${esc(n.evidence)}</div>` : ''}
-    ${renderAttachments(n.investigation_id, 'whys', n.id, true)}
-    ${renderLinkedCapas(n.investigation_id, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
+    ${renderAttachments(n.investigation_id, 'whys', n.id, true, renderLinkedCapaTabs(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`))}
+    ${renderLinkedCapas(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
     ${!n.is_root_cause && kids === 0 ? `<div class="why-nudge no-print">
       <span><strong>Keep drilling (${esc(nextGuide.stage)}):</strong> ${esc(nextGuide.prompt)}</span>
       <button class="btn btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}">${icon('plus')} Ask Why L${(n.level || 1) + 1}</button>
