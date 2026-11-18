@@ -1568,7 +1568,7 @@ function whyForm(invId, node, parentId, level) {
       </div>
       ${field('Question', `<input class="input" name="question" value="${esc(d.question)}" placeholder="Why did…" required>`)}
       ${field('Finding', `<textarea class="textarea" name="answer" placeholder="State the verified physical, control, or process finding…">${esc(d.answer)}</textarea>`)}
-      ${field('Evidence (required to verify root cause)', `<input class="input" name="evidence" value="${esc(d.evidence)}" placeholder="COMTRADE record, SOE log, borescope photo ID, SAP BOM…">`)}
+      ${field('Evidence (required to verify root cause)', `<textarea class="textarea" name="evidence" placeholder="COMTRADE record, SOE log, borescope photo ID, SAP BOM…">${esc(d.evidence)}</textarea>`)}
       ${modalCapaSection(invId, 'save-why-capa', whyAttrs, node ? `whys:${node.id}` : '', node ? `[5 Whys L${node.level}]` : '', node ? `[5 Whys L${node.level}] ${(node.answer || node.question || '').slice(0, 30)}` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn" data-action="save-why-capa" ${whyAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
