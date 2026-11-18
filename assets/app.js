@@ -1884,9 +1884,10 @@ function settingsModal() {
 
 function collect(names) {
   const out = {};
+  const scope = document.getElementById('modalHost') || document;
   names.forEach(n => {
-    const el = document.querySelector(`[name="${n}"]`);
-    if (el) out[n] = el.value.trim();
+    const el = scope.querySelector(`input[name="${n}"], textarea[name="${n}"], select[name="${n}"]`);
+    if (el) out[n] = (el.value ?? '').trim();
   });
   return out;
 }
