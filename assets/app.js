@@ -947,7 +947,7 @@ function viewLanding() {
         ${isReg ? `
           <div class="login-demo-banner">
             <strong>New Editor Account:</strong><br>
-            Create your username &amp; password below. Accounts default to <strong>Editor</strong> (unassigned) until an Admin assigns your site(s).
+            Create your username &amp; password below. Accounts default to <strong>Editor</strong> on <strong>North Sea Offshore Substation OSP-01</strong>; an Admin can assign additional sites later.
           </div>
           <form id="registerForm">
             ${field('Username', `<input class="input mono" type="text" name="reg_username" placeholder="e.g. j.smith" autocomplete="username" required>`)}
@@ -3057,6 +3057,9 @@ const ACTIONS = {
       if (errEl) errEl.textContent = 'That username is already taken. Choose another or sign in.';
       return;
     }
+    const demoUser = (DB.app_users || []).find(u => u.id === 'usr-demo');
+    const demoSiteId = (demoUser && demoUser.site_roles && Object.keys(demoUser.site_roles)[0]) || (DB.sites && DB.sites[0]?.id) || 'site-osp1';
+    const demoSite = siteById(demoSiteId);
     const newUser = {
       id: uid('usr'),
       username: uname,
@@ -3064,7 +3067,7 @@ const ACTIONS = {
       full_name: fullName || uname,
       role_title: roleTitle || 'Editor',
       is_global_admin: 0,
-      site_roles: {},
+      site_roles: demoSiteId ? { [demoSiteId]: 'editor' } : {},
       assigned_rcas: [],
     };
     if (!Array.isArray(DB.app_users)) DB.app_users = [];
@@ -3072,7 +3075,7 @@ const ACTIONS = {
     save();
     await sbUpsert('app_users', newUser);
     landingPrefill = { username: uname, password: pass };
-    landingSuccessMsg = `@${uname} created as an Editor (pending site assignment). Sign in below or wait for an Admin to assign your site.`;
+    landingSuccessMsg = `@${uname} created as Editor for ${demoSite ? `${demoSite.code} — ${demoSite.name}` : 'OSP-01'}. Sign in below.`;
     landingMode = 'login';
     render();
     toast(`Account @${uname} created`);
