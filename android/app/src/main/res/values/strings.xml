@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TotalRCA</string>
+    <string name="title_activity_main">TotalRCA</string>
+    <string name="package_name">com.totalrca.app</string>
+    <string name="custom_url_scheme">com.totalrca.app</string>
+</resources>

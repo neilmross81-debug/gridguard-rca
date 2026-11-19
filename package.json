@@ -1,0 +1,35 @@
+{
+  "name": "totalrca",
+  "version": "1.0.0",
+  "description": "TotalRCA — Local-first Root Cause Analysis and CAPA tracking for iOS, Android, and Web.",
+  "main": "index.js",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "cap:sync": "npm run build:web && npx cap sync"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neilmross81-debug/gridguard-rca.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/neilmross81-debug/gridguard-rca/issues"
+  },
+  "homepage": "https://github.com/neilmross81-debug/gridguard-rca#readme",
+  "dependencies": {
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/share": "^8.0.3",
+    "@revenuecat/purchases-capacitor": "^14.1.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/ios": "^8.6.2"
+  }
+}

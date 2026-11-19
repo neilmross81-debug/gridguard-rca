@@ -1,10 +1,16 @@
 /* ==========================================================================
-   GridGuard RCA — application
-   Storage schema is unchanged from the Flutter build (gridguard_rca_store_v1)
-   so existing investigations carry over untouched.
+   TotalRCA — application
+   Local-first Root Cause Analysis & CAPA tracking (Web, iOS, Android).
+   Storage key kept compatible with gridguard_rca_store_v1.
    ========================================================================== */
 
 const STORE_KEY = 'gridguard_rca_store_v1';
+const DEMO_INV_ID = 'rca-pump-p104a-001';
+const FREE_CUSTOM_RCA_LIMIT = 1;
+const FREE_CAPA_PER_CUSTOM_RCA_LIMIT = 3;
+
+const isPro = () => !!(window.TotalRCANative && window.TotalRCANative.isPro());
+const customRcas = () => (DB?.investigations || []).filter(i => i.id !== DEMO_INV_ID);
 
 /* ---------- vocabularies ---------- */
 
@@ -24,27 +30,69 @@ const STATUS = {
 };
 
 const FAULT = {
-  electrical:  'Electrical',
   mechanical:  'Mechanical',
-  instrument:  'Instrumentation',
-  control:     'Control & Automation',
-  process:     'Process',
+  electrical:  'Electrical',
+  instrument:  'Instrumentation & Sensors',
+  control:     'Control & Software',
+  process:     'Process & Operations',
   human:       'Human Factors',
-  structural:  'Structural',
+  structural:  'Structural / Civil',
   environmental:'Environmental',
   other:       'Other',
 };
 
 const ASSET = {
-  substationOsp:   'Offshore Substation (OSP)',
-  substationOnshore:'Onshore Substation',
-  windTurbine:     'Wind Turbine Generator',
-  arrayCable:      'Array Cable',
-  exportCable:     'Export Cable',
-  hvSwitchgear:    'HV Switchgear',
-  transformer:     'Transformer',
-  protection:      'Protection & Control',
-  other:           'Other',
+  pumpCompressor:       'Pump / Compressor',
+  motorDrive:           'Motor / Gearbox / Drive',
+  conveyorMechanical:   'Conveyor / Production Line',
+  hvacFacility:         'HVAC / Facility Utility',
+  electricalSwitchgear: 'Switchgear / Distribution',
+  transformerPower:     'Transformer / UPS / Generator',
+  plcControl:           'PLC / SCADA / Automation',
+  itServerNetwork:      'IT Server / Network / Cloud',
+  pipelineValve:        'Pipeline / Valve / Vessel',
+  substationOsp:        'Substation (HV / Offshore)',
+  windTurbine:          'Wind Turbine / Solar / BESS',
+  other:                'Other Asset / System',
+};
+
+const INDUSTRY_TEMPLATES = {
+  none: { label: 'Blank RCA (Custom)', asset_category: 'other', fault_category: 'mechanical', voltage_class: '', problem_statement: '' },
+  mechanical: {
+    label: 'General Mechanical (Pump / Motor / Bearing)',
+    asset_category: 'pumpCompressor',
+    fault_category: 'mechanical',
+    voltage_class: '400V 3-Phase / Mechanical',
+    problem_statement: 'Equipment experienced an unplanned trip / mechanical failure during normal operation, resulting in production downtime and maintenance intervention.',
+  },
+  electrical: {
+    label: 'Electrical & Power Systems',
+    asset_category: 'electricalSwitchgear',
+    fault_category: 'electrical',
+    voltage_class: '11 kV / 400V Distribution',
+    problem_statement: 'Electrical protection operated unexpectedly or power quality degraded, causing loss of supply to downstream equipment.',
+  },
+  manufacturing: {
+    label: 'Manufacturing & Production Line',
+    asset_category: 'conveyorMechanical',
+    fault_category: 'process',
+    voltage_class: 'Line / Shift Operations',
+    problem_statement: 'Production line stoppage or quality defect exceeded tolerance limits, halting throughput and requiring containment.',
+  },
+  itops: {
+    label: 'IT / Software & Network Incident',
+    asset_category: 'itServerNetwork',
+    fault_category: 'control',
+    voltage_class: 'Production / Cloud',
+    problem_statement: 'Service degradation or outage impacted users or telemetry systems, requiring failover and root cause remediation.',
+  },
+  hvRenewables: {
+    label: 'HV & Renewables Operations',
+    asset_category: 'substationOsp',
+    fault_category: 'electrical',
+    voltage_class: '220 kV / IEC 61850',
+    problem_statement: 'HV asset or renewable generation unit tripped offline, causing unplanned export curtailment.',
+  },
 };
 
 const VECTOR = {
@@ -66,9 +114,9 @@ const CAPA_STATUS = {
 };
 
 const TIMELINE_CAT = {
-  trigger:   { label: 'Trip / Fault',      tone: 'red'   },
-  telemetry: { label: 'SCADA / Alarm',     tone: 'amber' },
-  action:    { label: 'Operator / Field',  tone: 'cyan'  },
+  trigger:   { label: 'Trip / Failure',    tone: 'red'   },
+  telemetry: { label: 'Alarm / Telemetry', tone: 'amber' },
+  action:    { label: 'Operator / Tech',   tone: 'cyan'  },
   recovery:  { label: 'Restoration',       tone: 'green' },
   note:      { label: 'Observation',       tone: 'slate' },
 };
@@ -156,114 +204,95 @@ const riskBand = (rpn) => rpn >= 200 ? ['Critical', 'red'] : rpn >= 100 ? ['High
 /* ---------- store ---------- */
 
 function seed() {
-  const INV = 'rca-osp1-220kv-gis-001';
+  const INV = DEMO_INV_ID;
   return {
     sites: [
-      { id: 'site-osp1', name: 'North Sea Offshore Substation OSP-01', code: 'OSP-01', region: 'North Sea', voltage_class: '220 kV' },
-      { id: 'site-rampion', name: 'Rampion Offshore Windfarm', code: 'RMP-01', region: 'English Channel', voltage_class: '150 kV / 33 kV' },
-      { id: 'site-thames', name: 'Thames Estuary Onshore Grid', code: 'THM-01', region: 'South East UK', voltage_class: '400 kV' },
+      { id: 'site-main', name: 'Main Operations Facility', code: 'FAC-01', region: 'Primary Site', voltage_class: '400V / Mechanical' },
+      { id: 'site-plant2', name: 'Processing Plant B', code: 'PLT-02', region: 'Secondary Site', voltage_class: '11 kV / 400V' },
     ],
     app_users: [
       {
         id: 'usr-demo',
         username: 'demo',
         password: 'demo',
-        full_name: 'Demo Editor (OSP-01)',
-        role_title: 'OSP-01 HV Operations Engineer',
-        is_global_admin: 0,
-        site_roles: { 'site-osp1': 'editor' },
+        full_name: 'Local Engineer',
+        role_title: 'Reliability & Maintenance Engineer',
+        is_global_admin: 1,
+        site_roles: { 'site-main': 'admin', 'site-plant2': 'admin' },
         assigned_rcas: [],
       },
       {
         id: 'usr-admin',
         username: 'admin',
         password: 'demo',
-        full_name: 'Global Administrator',
-        role_title: 'Global HV Operations Admin',
+        full_name: 'Team Administrator',
+        role_title: 'Operations & Reliability Admin',
         is_global_admin: 1,
-        site_roles: { 'site-osp1': 'admin', 'site-rampion': 'admin', 'site-thames': 'admin' },
-        assigned_rcas: [],
-      },
-      {
-        id: 'usr-editor',
-        username: 'editor',
-        password: 'demo',
-        full_name: 'Henrik Lindqvist',
-        role_title: 'Lead HV Operations Engineer',
-        is_global_admin: 0,
-        site_roles: { 'site-osp1': 'editor', 'site-rampion': 'viewer' },
+        site_roles: { 'site-main': 'admin', 'site-plant2': 'admin' },
         assigned_rcas: [],
       },
       {
         id: 'usr-viewer',
         username: 'viewer',
         password: 'demo',
-        full_name: 'Site Safety Auditor',
-        role_title: 'HSE & Compliance Viewer',
+        full_name: 'Compliance Auditor',
+        role_title: 'HSE & Quality Viewer',
         is_global_admin: 0,
-        site_roles: { 'site-osp1': 'viewer' },
+        site_roles: { 'site-main': 'viewer' },
         assigned_rcas: [],
       },
     ],
     investigations: [{
       id: INV,
-      site_id: 'site-osp1',
-      document_code: 'RCA-2026-OSP1-004',
-      title: '220kV GIS Bay 04 SF6 Low-Pressure Trip & SCADA Telemetry Loss',
-      facility_name: 'North Sea Offshore Substation OSP-01',
-      asset_category: 'substationOsp',
-      equipment_tag: 'OSP1-220KV-GIS-BAY04',
-      voltage_class: '220 kV / IEC 61850',
-      severity: 'catastrophic',
-      fault_category: 'electrical',
+      site_id: 'site-main',
+      document_code: 'RCA-2026-IND-001',
+      title: 'Centrifugal Pump P-104A Mechanical Seal Failure & Bearing Overheat (Sample)',
+      facility_name: 'Main Operations Facility',
+      asset_category: 'pumpCompressor',
+      equipment_tag: 'PUMP-P104A-COOLING',
+      voltage_class: '400V 3-Phase / 45 kW',
+      severity: 'major',
+      fault_category: 'mechanical',
       status: 'inReview',
-      incident_date: '2026-11-14T03:42:00.000',
-      investigator_name: 'Henrik Lindqvist',
-      investigator_role: 'Lead HV Operations Engineer',
-      problem_statement: '220kV GIS Bay 04 tripped offline on Stage-2 SF6 low-density lockout while SCADA RTU telemetry simultaneously dropped for 18 minutes, causing an unplanned 240 MW export curtailment without remote fault visibility.',
-      executive_summary: 'At 03:42 UTC on 14 Nov 2026, 220kV Gas-Insulated Switchgear (GIS) Bay 04 experienced a Stage-2 SF6 density lockout trip, isolating Export Transformer TX-02 (240 MW curtailment). Concurrently, the primary SCADA RTU gateway dropped IEC 61850 MMS telemetry for 18 minutes due to an unbuffered DC auxiliary bus sag during breaker trip coil actuation.',
-      root_cause_conclusion: 'Primary Root Cause: Accelerated galvanic corrosion on the Bay 04 SF6 density sensor flange seal caused by marine salt-mist ingress through a degraded IP66 gland, compounded by an undersized 110V DC auxiliary battery bank that sagged below RTU brownout threshold during simultaneous trip-coil energization.',
+      incident_date: '2026-11-14T08:15:00.000',
+      investigator_name: 'Alex Morgan',
+      investigator_role: 'Reliability Engineer',
+      problem_statement: 'Primary cooling water pump P-104A tripped on motor drive over-temperature and high vibration (9.4 mm/s) after 4 hours of operation, causing a 3.5-hour line stoppage.',
+      executive_summary: 'At 08:15 UTC on 14 Nov 2026, Centrifugal Pump P-104A tripped offline due to drive-end bearing overheating (108 °C) and mechanical seal leakage. Standby pump P-104B took over after manual valve changeover, resulting in 3.5 hours of reduced production throughput.',
+      root_cause_conclusion: 'Primary Root Cause: Seal flush line strainer clogged with scale debris, starving the mechanical seal of cooling flow and causing dry-running thermal distortion; compounded by shaft misalignment introduced during the last coupling replacement.',
       drive_share_url: null,
       updated_at: '2026-11-16T14:20:00.000',
     }],
     five_whys_nodes: [
-      { id: 'w-1', investigation_id: INV, parent_id: null, level: 1, question: 'Why did 220kV GIS Bay 04 trip offline and curtail 240 MW?', answer: 'Protection relay P543 executed a Stage-2 SF6 low-density lockout trip on CB-04.', evidence: 'COMTRADE fault record #4419 & SOE log 03:42:11.204 UTC.', is_root_cause: 0, sort_order: 1 },
-      { id: 'w-2', investigation_id: INV, parent_id: 'w-1', level: 2, question: 'Why did SF6 compartment pressure drop below the 0.52 MPa lockout threshold?', answer: 'SF6 gas leaked past the density monitor manifold O-ring flange on Phase B.', evidence: 'Ultrasonic leak detector & SF6 sniffer confirmed 1,400 ppm at flange.', is_root_cause: 0, sort_order: 2 },
-      { id: 'w-3', investigation_id: INV, parent_id: 'w-2', level: 3, question: 'Why did the Phase B manifold O-ring flange lose sealing integrity?', answer: 'Pitting corrosion deformed the aluminium sealing groove beneath the EPDM O-ring.', evidence: 'Borescope inspection photo IMG_0412 showing white oxide pitting.', is_root_cause: 0, sort_order: 3 },
-      { id: 'w-4', investigation_id: INV, parent_id: 'w-3', level: 4, question: 'Why did pitting corrosion occur on an IP66-rated offshore GIS manifold?', answer: 'Moisture and salt-mist condensed inside the sensor junction box due to a cracked cable gland boot.', evidence: 'Maintenance log shows non-UV-stabilised rubber boot installed in 2023.', is_root_cause: 0, sort_order: 4 },
-      { id: 'w-5', investigation_id: INV, parent_id: 'w-4', level: 5, question: 'Why was a non-marine-grade boot installed and not caught during inspection?', answer: 'Spare parts BOM lacked offshore C5-M marine specification, and annual PM checklist omitted gland boot UV-cracking checks.', evidence: 'SAP Material Master #88214 & PM-OSP-220-02 rev 3.', is_root_cause: 1, sort_order: 5 },
-      { id: 'w-6', investigation_id: INV, parent_id: 'w-1', level: 2, question: 'Why did SCADA RTU Gateway lose IEC 61850 telemetry for 18 minutes?', answer: 'RTU CPU rebooted repeatedly due to 110V DC bus voltage dropping to 84V DC.', evidence: 'PQ analyser log on Aux DC Bus A: 84.2V DC dip for 380 ms.', is_root_cause: 0, sort_order: 6 },
-      { id: 'w-7', investigation_id: INV, parent_id: 'w-6', level: 3, question: 'Why did the 110V DC bus sag to 84V DC during breaker tripping?', answer: 'Aux Battery Bank B had 3 failed NiCd cells (high internal resistance) while Charger A was in float mode.', evidence: 'Cell impedance test: Cells #14, #15, #16 measured >18 mOhm.', is_root_cause: 0, sort_order: 7 },
-      { id: 'w-8', investigation_id: INV, parent_id: 'w-7', level: 4, question: 'Why were failed battery cells not alarmed in SCADA prior to the trip?', answer: 'The battery monitoring unit (BMU) alarm contact was wired as a common minor fault masked by an existing charger fan alarm.', evidence: 'RTU DI mapping table & alarm suppression log.', is_root_cause: 0, sort_order: 8 },
-      { id: 'w-9', investigation_id: INV, parent_id: 'w-8', level: 5, question: 'Why was the BMU critical cell-impedance alarm grouped into a masked common DI?', answer: 'Commissioning FAT/SAT did not enforce individual SCADA point segregation for DC auxiliary health alarms.', evidence: 'SAT-OSP1-AUX-009 punchlist sign-off.', is_root_cause: 1, sort_order: 9 },
+      { id: 'w-1', investigation_id: INV, parent_id: null, level: 1, question: 'Why did Centrifugal Pump P-104A trip offline with high vibration?', answer: 'Drive-end bearing temperature exceeded 105 °C and VFD tripped on over-current.', evidence: 'PLC alarm log #1142 & handheld IR reading 108 °C.', is_root_cause: 0, sort_order: 1 },
+      { id: 'w-2', investigation_id: INV, parent_id: 'w-1', level: 2, question: 'Why did the drive-end bearing overheat and vibrate?', answer: 'Hot process fluid leaked past the failed mechanical seal into the bearing housing, washing out grease.', evidence: 'Disassembly inspection showed emulsified grease and scored silicon-carbide seal faces.', is_root_cause: 0, sort_order: 2 },
+      { id: 'w-3', investigation_id: INV, parent_id: 'w-2', level: 3, question: 'Why did the mechanical seal faces score and crack?', answer: 'The seal ran dry due to loss of API Plan 11 flush cooling flow.', evidence: 'Seal flush line gauge read 0.1 bar (normal 3.2 bar); flush pipe was cold to the touch.', is_root_cause: 0, sort_order: 3 },
+      { id: 'w-4', investigation_id: INV, parent_id: 'w-3', level: 4, question: 'Why was the seal flush cooling flow blocked?', answer: 'The inline Y-strainer on the flush line was 95% blocked with rust and pipe scale.', evidence: 'Strainer basket photo & scale sample collected during strip-down.', is_root_cause: 0, sort_order: 4 },
+      { id: 'w-5', investigation_id: INV, parent_id: 'w-4', level: 5, question: 'Why was the flush strainer allowed to clog without warning?', answer: 'The Y-strainer had no differential-pressure indicator and was omitted from the 6-month PM checklist.', evidence: 'CMMS PM-PUMP-04 rev 2 lacks flush strainer inspection step.', is_root_cause: 1, sort_order: 5 },
     ],
     ishikawa_causes: [
-      { id: 'ish-1', investigation_id: INV, vector: 'machine', cause: 'Corroded SF6 density flange groove', detail: 'Galvanic pitting on aluminium manifold under Phase B sensor.', is_primary: 1 },
-      { id: 'ish-2', investigation_id: INV, vector: 'machine', cause: 'Degraded 110V DC NiCd cells (#14-16)', detail: 'High internal impedance caused 26V bus sag under trip coil load.', is_primary: 1 },
-      { id: 'ish-3', investigation_id: INV, vector: 'material', cause: 'Non-marine-grade EPDM cable boot', detail: 'Cracked under UV/salt exposure; BOM lacked C5-M spec.', is_primary: 1 },
-      { id: 'ish-4', investigation_id: INV, vector: 'man', cause: 'Alarm fatigue during offshore campaign', detail: 'Common minor Aux alarm acknowledged without field verification.', is_primary: 0 },
-      { id: 'ish-5', investigation_id: INV, vector: 'method', cause: 'PM checklist omitted gland integrity', detail: 'PM-OSP-220-02 checked SF6 pressure only, not enclosure seals.', is_primary: 0 },
-      { id: 'ish-6', investigation_id: INV, vector: 'measurement', cause: 'Masked BMU common alarm in SCADA', detail: 'Battery fault masked by persistent charger fan minor alarm.', is_primary: 1 },
-      { id: 'ish-7', investigation_id: INV, vector: 'milieu', cause: 'High-salinity North Sea condensation', detail: '94% RH & 18 m/s salt spray accelerated flange crevice corrosion.', is_primary: 0 },
+      { id: 'ish-1', investigation_id: INV, vector: 'machine', cause: 'Blocked seal flush Y-strainer', detail: '95% flow restriction starved mechanical seal of cooling.', is_primary: 1 },
+      { id: 'ish-2', investigation_id: INV, vector: 'machine', cause: 'Coupling angular misalignment (0.18 mm)', detail: 'Exceeded 0.05 mm tolerance after October motor swap.', is_primary: 1 },
+      { id: 'ish-3', investigation_id: INV, vector: 'material', cause: 'Carbon-steel header scale debris', detail: 'Upstream pipework corrosion shed flakes after shutdown.', is_primary: 0 },
+      { id: 'ish-4', investigation_id: INV, vector: 'method', cause: 'PM checklist omitted flush strainer', detail: 'PM-PUMP-04 checked oil level only, not flush line flow.', is_primary: 1 },
+      { id: 'ish-5', investigation_id: INV, vector: 'measurement', cause: 'No flush flow or DP alarm', detail: 'Operator had no visibility of gradual flush blockage.', is_primary: 0 },
+      { id: 'ish-6', investigation_id: INV, vector: 'man', cause: 'Laser alignment skipped during night shift', detail: 'Straight-edge alignment used instead of laser tool.', is_primary: 0 },
     ],
     fmea_items: [
-      { id: 'fmea-1', investigation_id: INV, component: '220kV GIS SF6 Manifold Seal', failure_mode: 'Crevice corrosion & micro-leakage', potential_effect: 'Stage-2 lockout trip & 240 MW export loss', potential_cause: 'Salt-mist ingress via cracked non-marine gland boot', current_controls: 'Annual SF6 pressure log & Stage-1 SCADA alarm', severity: 9, occurrence: 5, detection: 6 },
-      { id: 'fmea-2', investigation_id: INV, component: '110V DC Aux Battery Bank B', failure_mode: 'High internal cell resistance / voltage sag', potential_effect: 'SCADA RTU brownout & loss of substation visibility', potential_cause: 'NiCd cell ageing beyond design impedance', current_controls: 'Annual impedance test only', severity: 8, occurrence: 6, detection: 7 },
-      { id: 'fmea-3', investigation_id: INV, component: 'SCADA RTU Gateway (IEC 61850)', failure_mode: 'Unbuffered reboot on DC dip < 88V', potential_effect: '18-minute telemetry & SOE blind spot', potential_cause: 'No DC hold-up capacitance on RTU supply', current_controls: 'UPS on comms rack (not RTU direct)', severity: 7, occurrence: 4, detection: 5 },
-      { id: 'fmea-4', investigation_id: INV, component: 'SAP Spare Parts BOM', failure_mode: 'Incorrect elastomer specification', potential_effect: 'Premature boot cracking in C5-M offshore environment', potential_cause: 'BOM not reviewed against offshore corrosion class', current_controls: 'Manual parts selection', severity: 6, occurrence: 5, detection: 4 },
+      { id: 'fmea-1', investigation_id: INV, component: 'Mechanical Seal (API Plan 11)', failure_mode: 'Dry running / thermal cracking', potential_effect: 'Fluid leak, bearing washout & unplanned pump trip', potential_cause: 'Flush strainer blockage from upstream scale', current_controls: 'None on flush line; VFD over-current trip', severity: 8, occurrence: 5, detection: 7 },
+      { id: 'fmea-2', investigation_id: INV, component: 'Drive-End Ball Bearing', failure_mode: 'Lubrication loss & overheating', potential_effect: 'Seized shaft & 3.5 hr line downtime', potential_cause: 'Seal leakage + coupling misalignment load', current_controls: 'Monthly handheld vibration check', severity: 8, occurrence: 4, detection: 5 },
+      { id: 'fmea-3', investigation_id: INV, component: 'Pump-Motor Coupling', failure_mode: 'Excessive angular misalignment', potential_effect: 'Elevated radial vibration (9.4 mm/s)', potential_cause: 'Straight-edge alignment used after motor change', current_controls: 'Post-maintenance sign-off sheet', severity: 6, occurrence: 5, detection: 4 },
     ],
     capa_actions: [
-      { id: 'capa-1', investigation_id: INV, type: 'corrective', description: 'Resurface Bay 04 Phase B manifold, install Viton O-ring & 316L stainless IP68 cable gland; top-up SF6 to 0.64 MPa.', owner: 'M. Sorensen (Offshore HV Tech)', target_date: '2026-11-16T00:00:00.000', status: 'verified', verification_notes: 'Helium/SF6 sniffer < 5 ppm; Bay 04 re-energized 15 Nov 18:10 UTC.' },
-      { id: 'capa-2', investigation_id: INV, type: 'corrective', description: 'Replace failed NiCd cells #14-16 on Aux Battery Bank B and perform 4-hour capacity discharge test.', owner: 'K. Lindholm (DC Systems Lead)', target_date: '2026-11-18T00:00:00.000', status: 'inProgress', verification_notes: 'Replacement cells mobilized on SOV vessel; load bank scheduled.' },
-      { id: 'capa-3', investigation_id: INV, type: 'preventive', description: 'Segregate BMU critical cell-impedance & DC-bus under-voltage alarms to dedicated Priority-1 SCADA DIs across all OSPs.', owner: 'A. Patel (SCADA Architect)', target_date: '2026-12-05T00:00:00.000', status: 'open', verification_notes: 'IEC 61850 ICD/CID update drafted for review.' },
-      { id: 'capa-4', investigation_id: INV, type: 'preventive', description: 'Update PM-OSP-220-02 to mandate semi-annual UV/salt-ingress inspection on all GIS sensor glands & update SAP BOM to C5-M.', owner: 'H. Lindqvist (Lead HV Ops Eng)', target_date: '2026-12-15T00:00:00.000', status: 'open', verification_notes: 'Pending Change Control Board approval.' },
+      { id: 'capa-1', investigation_id: INV, type: 'corrective', description: 'Install new cartridge mechanical seal, replace DE/NDE bearings, clean flush Y-strainer, and laser-align coupling to < 0.04 mm.', owner: 'J. Vance (Maintenance Lead)', target_date: '2026-11-16T00:00:00.000', status: 'verified', verification_notes: '4-hour run test passed: bearing temp 58 °C, vibration 1.4 mm/s.' },
+      { id: 'capa-2', investigation_id: INV, type: 'preventive', description: 'Fit sight-flow indicator with low-flow switch on P-104A/B seal flush lines.', owner: 'R. Chen (Controls Eng)', target_date: '2026-12-05T00:00:00.000', status: 'inProgress', verification_notes: 'Flow switches ordered; scheduled for next planned outage.' },
+      { id: 'capa-3', investigation_id: INV, type: 'preventive', description: 'Update PM-PUMP-04 to mandate 6-monthly flush strainer cleaning and laser alignment sign-off after any coupling work.', owner: 'A. Morgan (Reliability Eng)', target_date: '2026-12-12T00:00:00.000', status: 'open', verification_notes: 'Draft SOP submitted for maintenance review.' },
     ],
     timeline_events: [
-      { id: 'tl-1', investigation_id: INV, timestamp: '2026-11-14T03:38:15.000Z', category: 'telemetry', source: 'SCADA / RTU', title: 'Stage-1 SF6 low-density warning on Bay 04 Phase B', detail: 'Compartment pressure crossed 0.56 MPa warning threshold; common minor alarm grouped under existing charger fan alert.' },
-      { id: 'tl-2', investigation_id: INV, timestamp: '2026-11-14T03:42:11.000Z', category: 'trigger', source: 'Relay P543 / COMTRADE #4419', title: 'Stage-2 SF6 lockout trip on CB-04 (240 MW curtailment)', detail: 'Pressure fell below 0.52 MPa; protection relay executed breaker trip and isolated Export Transformer TX-02.' },
-      { id: 'tl-3', investigation_id: INV, timestamp: '2026-11-14T03:42:12.000Z', category: 'telemetry', source: 'PQ Analyser / Aux DC Bus A', title: '110V DC bus sag to 84.2V DC & RTU telemetry loss', detail: 'Trip coil energisation sagged Battery Bank B (3 high-impedance cells), dropping IEC 61850 MMS comms for 18 minutes.' },
-      { id: 'tl-4', investigation_id: INV, timestamp: '2026-11-14T04:00:20.000Z', category: 'action', source: 'Control Room / Field Crew', title: 'SCADA RTU restored; offshore HV team dispatched', detail: 'Charger A recovery stabilised DC bus; ultrasonic leak detector confirmed 1,400 ppm SF6 at Phase B flange.' },
-      { id: 'tl-5', investigation_id: INV, timestamp: '2026-11-15T18:10:00.000Z', category: 'recovery', source: 'Offshore HV Tech', title: 'Manifold resurfaced, Viton O-ring fitted & Bay 04 re-energised', detail: 'SF6 topped up to 0.64 MPa; sniffer check < 5 ppm prior to energisation.' },
+      { id: 'tl-1', investigation_id: INV, timestamp: '2026-11-14T06:40:00.000Z', category: 'telemetry', source: 'PLC / Vibration Sensor', title: 'P-104A vibration trended above 5.5 mm/s warning', detail: 'Early bearing distress & seal chatter began as flush flow dropped.' },
+      { id: 'tl-2', investigation_id: INV, timestamp: '2026-11-14T08:15:12.000Z', category: 'trigger', source: 'VFD Drive / PLC Alarm #1142', title: 'P-104A tripped on over-current & high bearing temp (108 °C)', detail: 'Pump isolated automatically; standby pump P-104B required manual suction valve changeover.' },
+      { id: 'tl-3', investigation_id: INV, timestamp: '2026-11-14T08:32:00.000Z', category: 'action', source: 'Shift Operator', title: 'Standby pump P-104B started; P-104A locked out (LOTO)', detail: 'Area isolated for mechanical inspection; seal weeping observed.' },
+      { id: 'tl-4', investigation_id: INV, timestamp: '2026-11-15T14:20:00.000Z', category: 'recovery', source: 'Maintenance Team', title: 'Seal & bearings replaced, flush strainer cleared, laser aligned', detail: 'P-104A returned to standby readiness with 1.4 mm/s vibration.' },
     ],
     attachments: [],
     app_settings: {},
@@ -330,18 +359,22 @@ function load() {
   }
 }
 function save() {
+  const jsonStr = JSON.stringify(DB);
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(DB));
+    localStorage.setItem(STORE_KEY, jsonStr);
   } catch (e) {
     try {
       const slim = Object.assign({}, DB, {
         attachments: (DB.attachments || []).map(a => Object.assign({}, a, { data_url: '' })),
       });
-      localStorage.setItem(STORE_KEY, JSON.stringify(slim));
+      const slimStr = JSON.stringify(slim);
+      localStorage.setItem(STORE_KEY, slimStr);
+      if (window.TotalRCANative) window.TotalRCANative.mirrorSave(STORE_KEY, slimStr);
     } catch (e2) {
-      toast('Local cache full — attachments will still sync to Supabase');
+      toast('Local storage full — consider exporting or connecting your own database');
     }
   }
+  if (window.TotalRCANative) window.TotalRCANative.mirrorSave(STORE_KEY, jsonStr);
   pushWebhook();
 }
 const invById = (id) => DB.investigations.find(i => i.id === id);
@@ -369,8 +402,16 @@ function clearSession() {
 }
 function currentUser() {
   const s = getSession();
-  if (!s || !s.userId) return null;
-  return (DB.app_users || []).find(u => u.id === s.userId) || null;
+  if (s && s.userId) {
+    const found = (DB.app_users || []).find(u => u.id === s.userId);
+    if (found) return found;
+  }
+  // Local-first default: auto-sign in as Local Engineer when no external team DB is active
+  const sbCfg = typeof getSupabaseCfg === 'function' ? getSupabaseCfg() : null;
+  if (!sbCfg || !sbCfg.url || !sbCfg.key) {
+    return (DB.app_users || [])[0] || { id: 'usr-demo', username: 'local', full_name: 'Local Engineer', role_title: 'Owner', is_global_admin: 1, site_roles: {}, assigned_rcas: [] };
+  }
+  return null;
 }
 function userRoleForSite(user, siteId) {
   if (!user) return null;
@@ -464,15 +505,22 @@ function siteFilterSelect() {
   </div>`;
 }
 
-/* ---------- Supabase multi-user cloud sync ---------- */
+/* ---------- Team Database Sync (BYODB — local-only by default) ---------- */
 
-const SUPABASE_URL = 'https://nhhtxfimvlapqlbvcrlz.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_5gmDFx3BwVPjNBxjobriDQ_LpDxDAnl';
 const INV_CHILD_TABLES = ['timeline_events', 'five_whys_nodes', 'ishikawa_causes', 'fmea_items', 'capa_actions', 'attachments'];
 const SB_TABLES = ['sites', 'app_users', 'investigations', ...INV_CHILD_TABLES];
 const SB_MIGRATED_KEY = 'gridguard_supabase_migrated_v1';
 
-let syncState = { status: 'syncing', text: 'Syncing…', detail: 'Connecting to Supabase…' };
+function getSupabaseCfg() {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) ? DB.app_settings : {};
+  return {
+    url: (s.supabase_url || '').trim().replace(/\/+$/, ''),
+    key: (s.supabase_key || '').trim(),
+  };
+}
+const hasSupabase = () => { const c = getSupabaseCfg(); return !!(c.url && c.key); };
+
+let syncState = { status: 'offline', text: 'Local only', detail: 'Data stored locally on your device' };
 let lastSyncAt = 0;
 
 function setSyncState(status, text, detail = '') {
@@ -486,13 +534,16 @@ function setSyncState(status, text, detail = '') {
 }
 
 function sbHeaders(extra = {}) {
-  const h = { apikey: SUPABASE_KEY, 'Content-Type': 'application/json', ...extra };
-  if (SUPABASE_KEY.startsWith('eyJ')) h.Authorization = `Bearer ${SUPABASE_KEY}`;
+  const { key } = getSupabaseCfg();
+  const h = { apikey: key, 'Content-Type': 'application/json', ...extra };
+  if (key.startsWith('eyJ')) h.Authorization = `Bearer ${key}`;
   return h;
 }
 
 async function sbFetch(path, opts = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const { url, key } = getSupabaseCfg();
+  if (!url || !key) return null;
+  const res = await fetch(`${url}/rest/v1/${path}`, {
     ...opts,
     headers: sbHeaders(opts.headers || {}),
   });
@@ -509,6 +560,7 @@ async function sbFetch(path, opts = {}) {
 }
 
 function sbUpsert(table, rows) {
+  if (!hasSupabase() || !isPro()) return Promise.resolve();
   const arr = Array.isArray(rows) ? rows : [rows];
   if (!arr.length) return Promise.resolve();
   return sbFetch(table, {
@@ -520,6 +572,7 @@ function sbUpsert(table, rows) {
 }
 
 function sbDelete(table, id) {
+  if (!hasSupabase() || !isPro()) return Promise.resolve();
   return sbFetch(`${table}?id=eq.${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { Prefer: 'return=minimal' },
@@ -528,6 +581,7 @@ function sbDelete(table, id) {
 }
 
 function sbDeleteByInv(table, invId) {
+  if (!hasSupabase() || !isPro()) return Promise.resolve();
   return sbFetch(`${table}?investigation_id=eq.${encodeURIComponent(invId)}`, {
     method: 'DELETE',
     headers: { Prefer: 'return=minimal' },
@@ -535,12 +589,14 @@ function sbDeleteByInv(table, invId) {
 }
 
 function sbTouchInv(invId) {
+  if (!hasSupabase() || !isPro()) return Promise.resolve();
   const i = invById(invId);
   if (i) return sbUpsert('investigations', i);
   return Promise.resolve();
 }
 
 async function sbPushAll(store) {
+  if (!hasSupabase() || !isPro()) return;
   for (const t of SB_TABLES) {
     if (Array.isArray(store[t]) && store[t].length) {
       await sbUpsert(t, store[t]);
@@ -550,14 +606,24 @@ async function sbPushAll(store) {
 
 function handleSbWriteError(err) {
   if (err && (err.status === 404 || (err.body && err.body.includes('PGRST205')))) {
-    setSyncState('setup', 'Setup SQL', 'Run the setup SQL in Supabase SQL Editor to enable cloud sync.');
+    setSyncState('setup', 'Setup SQL', 'Run the setup SQL in your Supabase SQL Editor to enable team sync.');
   } else {
-    setSyncState('offline', 'Local only', 'Could not reach Supabase — saved locally.');
+    setSyncState('offline', 'Local only', 'Could not reach your Supabase project — saved locally.');
   }
 }
 
 async function syncFromSupabase(showToast = false) {
-  setSyncState('syncing', 'Syncing…', 'Fetching shared RCAs from Supabase…');
+  if (!hasSupabase()) {
+    setSyncState('offline', 'Local only', 'Data stored locally on your device. Connect your own DB in Settings.');
+    if (showToast) toast('Running local-only — configure your own database in Settings to sync');
+    return;
+  }
+  if (!isPro()) {
+    setSyncState('offline', 'Local only', 'Team DB Sync requires TotalRCA Pro');
+    if (showToast && typeof openProModal === 'function') openProModal('Team Database Sync');
+    return;
+  }
+  setSyncState('syncing', 'Syncing…', 'Fetching shared RCAs from your Supabase…');
   try {
     const results = await Promise.all(SB_TABLES.map(t => sbFetch(`${t}?select=*`).catch(() => [])));
     const remote = {};
@@ -572,7 +638,7 @@ async function syncFromSupabase(showToast = false) {
     } else {
       if (!migrated) {
         const remoteIds = new Set(remote.investigations.map(i => i.id));
-        const localOnlyInvs = DB.investigations.filter(i => !remoteIds.has(i.id) && i.id !== 'rca-osp1-220kv-gis-001');
+        const localOnlyInvs = DB.investigations.filter(i => !remoteIds.has(i.id) && i.id !== DEMO_INV_ID);
         if (localOnlyInvs.length) {
           const localOnlyIds = new Set(localOnlyInvs.map(i => i.id));
           await sbUpsert('investigations', localOnlyInvs);
@@ -582,7 +648,7 @@ async function syncFromSupabase(showToast = false) {
             remote[t] = remote[t].concat(childRows);
           }
           remote.investigations = remote.investigations.concat(localOnlyInvs);
-          toast(`Uploaded ${localOnlyInvs.length} local RCA(s) to shared cloud`);
+          toast(`Uploaded ${localOnlyInvs.length} local RCA(s) to your database`);
         }
         localStorage.setItem(SB_MIGRATED_KEY, '1');
       }
@@ -599,30 +665,45 @@ async function syncFromSupabase(showToast = false) {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) {}
 
     lastSyncAt = Date.now();
-    setSyncState('ok', 'Synced', `Shared cloud · ${DB.investigations.length} RCA(s) · ${new Date().toLocaleTimeString()}`);
+    setSyncState('ok', 'Synced', `Your Supabase · ${DB.investigations.length} RCA(s) · ${new Date().toLocaleTimeString()}`);
     render();
-    if (showToast) toast('Synced with shared cloud');
+    if (showToast) toast('Synced with your database');
   } catch (err) {
     handleSbWriteError(err);
     if (showToast) toast(syncState.detail);
   }
 }
 
-/* ---------- optional Apps Script webhook ---------- */
+/* ---------- optional Apps Script & Custom REST webhook ---------- */
 
 let webhookTimer = null;
 function pushWebhook() {
-  const url = DB.app_settings?.webhook_url;
-  if (!url || !/^https:\/\/script\.google\.com\//.test(url)) return;
+  if (!isPro()) return;
+  const s = DB.app_settings || {};
+  const appsScriptUrl = (s.webhook_url || '').trim();
+  const customRestUrl = (s.custom_rest_url || '').trim();
+  const customRestToken = (s.custom_rest_token || '').trim();
+  if (!appsScriptUrl && !customRestUrl) return;
+
   clearTimeout(webhookTimer);
   webhookTimer = setTimeout(async () => {
-    try {
-      await fetch(url, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ event: 'sync', at: new Date().toISOString(), store: DB }),
-      });
-    } catch (e) { /* offline is fine — data is local-first */ }
+    const payload = JSON.stringify({ event: 'sync', at: new Date().toISOString(), store: DB });
+    if (appsScriptUrl && /^https:\/\/script\.google\.com\//.test(appsScriptUrl)) {
+      try {
+        await fetch(appsScriptUrl, {
+          method: 'POST', mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: payload,
+        });
+      } catch (e) {}
+    }
+    if (customRestUrl && /^https?:\/\//.test(customRestUrl)) {
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (customRestToken) headers.Authorization = `Bearer ${customRestToken}`;
+        await fetch(customRestUrl, { method: 'POST', headers, body: payload });
+      } catch (e) {}
+    }
   }, 1200);
 }
 
@@ -2296,35 +2377,43 @@ function rcaForm(i) {
   const isNew = !i;
   const editableSites = editableSitesForUser(currentUser());
   const siteOpts = (editableSites.length ? editableSites : (DB.sites || [])).map(s => [s.id, `${s.code} — ${s.name}${s.region ? ` (${s.region})` : ''}`]);
-  const defaultSiteId = (i && i.site_id) || (activeSiteId !== 'all' && siteOpts.some(([id]) => id === activeSiteId) ? activeSiteId : (siteOpts[0] ? siteOpts[0][0] : 'site-osp1'));
+  const defaultSiteId = (i && i.site_id) || (activeSiteId !== 'all' && siteOpts.some(([id]) => id === activeSiteId) ? activeSiteId : (siteOpts[0] ? siteOpts[0][0] : 'site-main'));
   const defaultSite = siteById(defaultSiteId);
   const d = i || {
     site_id: defaultSiteId,
-    document_code: `RCA-${new Date().getFullYear()}-${(defaultSite?.code || 'OSP1').replace(/[^A-Z0-9]/gi, '')}-${String(DB.investigations.length + 2).padStart(3, '0')}`,
-    title: '', facility_name: defaultSite ? defaultSite.name : 'North Sea Offshore Substation OSP-01', asset_category: 'substationOsp',
-    equipment_tag: '', voltage_class: defaultSite ? defaultSite.voltage_class : '', severity: 'major', fault_category: 'electrical', status: 'inProgress',
+    document_code: `RCA-${new Date().getFullYear()}-${(defaultSite?.code || 'FAC1').replace(/[^A-Z0-9]/gi, '')}-${String(DB.investigations.length + 1).padStart(3, '0')}`,
+    title: '', facility_name: defaultSite ? defaultSite.name : 'Main Operations Facility', asset_category: 'pumpCompressor',
+    equipment_tag: '', voltage_class: defaultSite ? defaultSite.voltage_class : '', severity: 'major', fault_category: 'mechanical', status: 'inProgress',
     incident_date: new Date().toISOString(), investigator_name: '', investigator_role: '', problem_statement: '', executive_summary: '',
     root_cause_conclusion: '',
   };
+
+  const tplOpts = Object.entries(INDUSTRY_TEMPLATES).map(([k, t]) => [k, t.label]);
 
   return {
     eyebrow: isNew ? 'New record' : 'Editing record',
     title: isNew ? 'Create RCA' : 'Edit RCA',
     width: 'wide',
     body: `
+      ${isNew ? `
+      <div class="form-grid" style="margin-bottom:6px">
+        <div class="field col-span-2">
+          ${field('Industry template (optional)', select('industry_template', tplOpts, 'none'), 'Pre-fills asset category, fault type & starter problem statement.')}
+        </div>
+      </div>` : ''}
       <div class="form-grid">
-        ${field('Operational Site &amp; Region', select('site_id', siteOpts, d.site_id || defaultSiteId))}
+        ${field('Site / Location', select('site_id', siteOpts, d.site_id || defaultSiteId))}
         ${field('Document ID', `<input class="input" name="document_code" value="${esc(d.document_code)}" required>`)}
       </div>
       <div class="form-grid">
         <div class="field col-span-2">
           <label>Title</label>
-          <input class="input" name="title" value="${esc(d.title)}" placeholder="220kV GIS Bay 04 SF6 Low-Pressure Trip" required>
+          <input class="input" name="title" value="${esc(d.title)}" placeholder="e.g. Centrifugal Pump P-104A Seal Failure" required>
         </div>
       </div>
       <div class="form-grid">
-        ${field('Facility / Substation Name', `<input class="input" name="facility_name" value="${esc(d.facility_name)}">`)}
-        ${field('Equipment tag', `<input class="input" name="equipment_tag" value="${esc(d.equipment_tag)}" placeholder="OSP1-220KV-GIS-BAY04">`)}
+        ${field('Facility / Site Name', `<input class="input" name="facility_name" value="${esc(d.facility_name)}">`)}
+        ${field('Asset / Equipment Tag', `<input class="input" name="equipment_tag" value="${esc(d.equipment_tag)}" placeholder="e.g. PUMP-P104A">`)}
       </div>
       <div class="form-grid">
         ${field('Severity', select('severity', optsFrom(SEVERITY), d.severity))}
@@ -2335,12 +2424,12 @@ function rcaForm(i) {
         ${field('Fault category', select('fault_category', Object.entries(FAULT), d.fault_category))}
       </div>
       <div class="form-grid">
-        ${field('System / voltage class', `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="220 kV / IEC 61850">`)}
+        ${field('System / Operating Spec', `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="e.g. 400V 3-Phase / 45 kW">`)}
         ${field('Incident date', `<input class="input" type="date" name="incident_date" value="${toDateInput(d.incident_date)}">`)}
       </div>
       <div class="form-grid">
-        ${field('Investigator name', `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="Henrik Lindqvist">`)}
-        ${field('Investigator role', `<input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="Lead HV Operations Engineer">`)}
+        ${field('Investigator name', `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="e.g. Alex Morgan">`)}
+        ${field('Investigator role', `<input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="e.g. Reliability Engineer">`)}
       </div>
       <div class="form-grid">
         <div class="field col-span-2">
@@ -2351,7 +2440,7 @@ function rcaForm(i) {
       <div class="form-grid">
         <div class="field col-span-2">
           <label>Executive summary</label>
-          <textarea class="textarea" name="executive_summary" placeholder="What happened, what it cost, what was curtailed…">${esc(d.executive_summary)}</textarea>
+          <textarea class="textarea" name="executive_summary" placeholder="What happened, downtime or cost impact, and containment…">${esc(d.executive_summary)}</textarea>
         </div>
       </div>
       <div class="form-grid">
@@ -2856,6 +2945,81 @@ function timelineImportModal(invId, rows, fileName) {
   };
 }
 
+const SB_SETUP_SQL = `-- Run this once in your Supabase SQL Editor to enable TotalRCA Team Sync:
+create table if not exists sites (id text primary key, name text, code text, region text, voltage_class text);
+create table if not exists app_users (id text primary key, username text, password text, full_name text, role_title text, is_global_admin int default 0, site_roles jsonb default '{}'::jsonb, assigned_rcas jsonb default '[]'::jsonb);
+create table if not exists investigations (id text primary key, site_id text, document_code text, title text, facility_name text, asset_category text, equipment_tag text, voltage_class text, severity text, fault_category text, status text, incident_date text, investigator_name text, investigator_role text, problem_statement text, executive_summary text, root_cause_conclusion text, drive_share_url text, updated_at text);
+create table if not exists timeline_events (id text primary key, investigation_id text, timestamp text, category text, source text, title text, detail text);
+create table if not exists five_whys_nodes (id text primary key, investigation_id text, parent_id text, level int, question text, answer text, evidence text, is_root_cause int default 0, sort_order int default 0);
+create table if not exists ishikawa_causes (id text primary key, investigation_id text, vector text, cause text, detail text, is_primary int default 0);
+create table if not exists fmea_items (id text primary key, investigation_id text, component text, failure_mode text, potential_effect text, potential_cause text, current_controls text, severity int, occurrence int, detection int);
+create table if not exists capa_actions (id text primary key, investigation_id text, type text, description text, owner text, target_date text, status text, verification_notes text);
+create table if not exists attachments (id text primary key, investigation_id text, area text, record_id text, name text, mime text, size int, data_url text, created_at text);`;
+
+function updateProPill() {
+  const btn = document.getElementById('proBtn');
+  if (!btn) return;
+  const active = isPro();
+  btn.className = `sync-pill ${active ? 'ok' : 'warn'}`;
+  const label = btn.querySelector('.pro-text');
+  if (label) label.textContent = active ? 'Pro Active' : 'Upgrade to Pro';
+  btn.title = active ? 'TotalRCA Pro unlocked' : 'Free trial: 1 sample + 1 custom RCA. Click to upgrade.';
+}
+
+function proModal(reason = '') {
+  const active = isPro();
+  return {
+    eyebrow: 'TotalRCA Pro',
+    title: active ? 'Pro Unlocked' : 'Upgrade to TotalRCA Pro',
+    width: 'wide',
+    body: `
+      ${reason ? `<div class="login-demo-banner" style="margin-bottom:14px"><strong>Unlock ${esc(reason)}:</strong> Free plan includes the sample Centrifugal Pump RCA plus 1 custom RCA (up to 3 CAPA actions) stored locally on your device.</div>` : ''}
+      <div class="card" style="padding:16px;margin-bottom:14px">
+        <div class="eyebrow" style="margin-bottom:8px">Everything included in TotalRCA Pro</div>
+        <ul style="margin:0;padding-left:18px;font-size:13.5px;line-height:1.7;color:var(--ink)">
+          <li><strong>Unlimited RCAs &amp; CAPA Actions</strong> stored locally offline on your phone</li>
+          <li><strong>Unbranded PDF &amp; Excel Exports</strong> + Timeline spreadsheet import</li>
+          <li><strong>Bring Your Own Database (Team Sync)</strong> — connect your own Supabase, Google Apps Script, or custom REST endpoint</li>
+          <li><strong>All Industry Templates</strong> — Mechanical, Electrical, Manufacturing, IT/Ops &amp; HV</li>
+        </ul>
+      </div>
+      ${active ? `
+        <div class="chip-row">${chip('TotalRCA Pro is active on this device', 'green')}</div>
+      ` : `
+        <div class="form-grid" style="gap:12px">
+          <div class="card" style="padding:16px;border:2px solid var(--accent)">
+            <div class="chip-row" style="justify-content:space-between;margin-bottom:6px">
+              <strong>Pro Lifetime</strong>
+              ${chip('Best Value', 'cyan')}
+            </div>
+            <div style="font-size:22px;font-weight:700;margin-bottom:4px">£34.99 <span class="muted" style="font-size:12.5px;font-weight:400">/ one-time</span></div>
+            <p class="muted" style="font-size:12.5px;margin:0 0 12px">Pay once, own forever. Ideal for engineers &amp; field techs.</p>
+            <button class="btn btn-primary" style="width:100%;justify-content:center" data-action="buy-pro" data-plan="lifetime">Unlock Lifetime</button>
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="chip-row" style="justify-content:space-between;margin-bottom:6px">
+              <strong>Pro Annual / Monthly</strong>
+              ${chip('Teams', 'slate')}
+            </div>
+            <div style="font-size:22px;font-weight:700;margin-bottom:4px">£29.99<span class="muted" style="font-size:12.5px;font-weight:400">/yr</span> <span class="muted" style="font-size:13px">or £4.99/mo</span></div>
+            <p class="muted" style="font-size:12.5px;margin:0 0 12px">Easy to expense. Cancel anytime in App Store / Google Play.</p>
+            <div class="chip-row" style="gap:8px">
+              <button class="btn btn-sm" style="flex:1;justify-content:center" data-action="buy-pro" data-plan="annual">Annual (£29.99)</button>
+              <button class="btn btn-sm" style="flex:1;justify-content:center" data-action="buy-pro" data-plan="monthly">Monthly (£4.99)</button>
+            </div>
+          </div>
+        </div>
+      `}
+    `,
+    foot: `<button class="btn" data-action="restore-purchases">Restore Purchases</button>
+           <button class="btn" data-action="close-modal">Close</button>`,
+  };
+}
+
+function openProModal(reason = '') {
+  openModal(proModal(reason));
+}
+
 function settingsModal() {
   const s = DB.app_settings || {};
   const a = getAsanaCfg();
@@ -2878,8 +3042,47 @@ function settingsModal() {
       <section style="margin-bottom:8px">
         <div class="section-head" style="margin-bottom:8px">
           <div>
+            <h3 class="h3" style="margin-bottom:4px">TotalRCA Pro License</h3>
+            <p class="muted" style="font-size:13px;margin:0">${isPro() ? 'Pro is active — unlimited RCAs, exports &amp; Team DB sync unlocked.' : 'Free Plan — includes 1 sample RCA + 1 custom RCA (up to 3 CAPAs) stored locally.'}</p>
+          </div>
+          ${isPro() ? chip('Pro Active', 'green') : chip('Free Plan', 'amber')}
+        </div>
+        <div class="chip-row">
+          ${isPro() ? '' : `<button class="btn btn-primary btn-sm" type="button" data-action="open-pro">Upgrade to Pro</button>`}
+          <button class="btn btn-sm" type="button" data-action="restore-purchases">Restore Purchases</button>
+        </div>
+      </section>
+      <div class="divider"></div>
+      <section style="margin-bottom:8px">
+        <div class="section-head" style="margin-bottom:8px">
+          <div>
+            <h3 class="h3" style="margin-bottom:4px">Team Database Sync (Bring Your Own Database)</h3>
+            <p class="muted" style="font-size:13px;margin:0">Runs 100% local on your device by default with no central server. Teams on Pro can connect their own Supabase project, Google Apps Script, or custom REST API.</p>
+          </div>
+          ${hasSupabase() ? chip('Supabase Configured', 'green') : chip('Local Only', 'slate')}
+        </div>
+        <div class="form-grid">
+          ${field('Supabase Project URL', `<input class="input mono" name="supabase_url" value="${esc(s.supabase_url || '')}" placeholder="https://your-project.supabase.co">`)}
+          ${field('Supabase Anon / Publishable Key', `<input class="input mono" type="password" name="supabase_key" value="${esc(s.supabase_key || '')}" placeholder="sb_publishable_... or eyJ...">`)}
+        </div>
+        <div class="chip-row" style="margin-bottom:14px">
+          <button class="btn btn-sm" type="button" data-action="copy-sb-sql">Copy Supabase Setup SQL</button>
+          <button class="btn btn-sm" type="button" data-action="sync-now">Test &amp; Sync Now</button>
+        </div>
+        ${field('Google Apps Script Web App URL (optional)',
+          `<input class="input" name="webhook_url" value="${esc(s.webhook_url || '')}" placeholder="https://script.google.com/macros/s/AKfy…/exec">`,
+          'Mirrors changes to your own Google Drive / Sheets.')}
+        <div class="form-grid">
+          ${field('Custom REST / Webhook URL (optional)', `<input class="input" name="custom_rest_url" value="${esc(s.custom_rest_url || '')}" placeholder="https://api.yourcompany.com/rca-sync">`)}
+          ${field('Bearer Token (optional)', `<input class="input mono" type="password" name="custom_rest_token" value="${esc(s.custom_rest_token || '')}" placeholder="Optional Authorization header">`)}
+        </div>
+      </section>
+      <div class="divider"></div>
+      <section style="margin-bottom:8px">
+        <div class="section-head" style="margin-bottom:8px">
+          <div>
             <h3 class="h3" style="margin-bottom:4px">Asana Two-Way Integration</h3>
-            <p class="muted" style="font-size:13px;margin:0">Connect with your Asana Personal Access Token (stored in this browser) to sync CAPA actions two-way per operational site.</p>
+            <p class="muted" style="font-size:13px;margin:0">Connect with your Asana Personal Access Token to sync CAPA actions two-way per operational site.</p>
           </div>
           ${a.user_name ? chip(`Connected: ${a.user_name}`, 'green') : chip('Not connected', 'slate')}
         </div>
@@ -2908,16 +3111,8 @@ function settingsModal() {
         </div>
       </section>
       <div class="divider"></div>
-      <section style="margin-bottom:8px">
-        <h3 class="h3" style="margin-bottom:6px">Sync &amp; backup</h3>
-        <p class="muted" style="font-size:13.5px;margin:0 0 18px">Data is stored in this browser first and works offline. Add an Apps Script web app URL to mirror every change to your own Google Drive.</p>
-        ${field('Apps Script webhook URL',
-          `<input class="input" name="webhook_url" value="${esc(s.webhook_url || '')}" placeholder="https://script.google.com/macros/s/AKfy…/exec">`,
-          'Leave blank to stay local-only. Must be a script.google.com web app URL.')}
-      </section>
-      <div class="divider"></div>
       <section>
-        <h3 class="h3" style="margin-bottom:6px">Data</h3>
+        <h3 class="h3" style="margin-bottom:6px">Data &amp; Backups</h3>
         <p class="muted" style="font-size:13.5px;margin:0 0 16px">
           ${DB.investigations.length} investigations · ${DB.timeline_events.length} timeline events · ${DB.five_whys_nodes.length} why levels ·
           ${DB.ishikawa_causes.length} 6M causes · ${DB.fmea_items.length} failure modes ·
@@ -3239,6 +3434,10 @@ const ACTIONS = {
 
   'new-rca': () => {
     if (!canCreateRca(currentUser())) { toast('Editor or Admin role required to create RCAs'); return; }
+    if (!isPro() && customRcas().length >= FREE_CUSTOM_RCA_LIMIT) {
+      openProModal('Unlimited RCAs');
+      return;
+    }
     openModal(rcaForm(null));
   },
   'edit-rca': (el) => {
@@ -3289,6 +3488,7 @@ const ACTIONS = {
   'download-timeline-template': () => downloadTimelineTemplate(),
   'import-timeline': (el) => {
     if (!requireEdit(el.dataset.id)) return;
+    if (!isPro()) { openProModal('Excel Timeline Import'); return; }
     const inp = document.getElementById('timelineImportFile');
     if (inp) { inp.dataset.invId = el.dataset.id; inp.value = ''; inp.click(); }
   },
@@ -3313,6 +3513,10 @@ const ACTIONS = {
     const id = el.dataset.id;
     if (id && !requireEdit(id)) return;
     if (!id && !canCreateRca(currentUser())) { toast('Editor or Admin role required'); return; }
+    if (!id && !isPro() && customRcas().length >= FREE_CUSTOM_RCA_LIMIT) {
+      openProModal('Unlimited RCAs');
+      return;
+    }
     const v = collect(['site_id','document_code','title','facility_name','equipment_tag','asset_category','fault_category','voltage_class','severity','status','investigator_name','investigator_role','problem_statement','executive_summary','root_cause_conclusion']);
     if (!v.title) { toast('A title is required'); return; }
     if (v.site_id && !v.facility_name) {
@@ -3431,6 +3635,10 @@ const ACTIONS = {
 
   'add-capa': (el) => {
     if (!requireEdit(el.dataset.id)) return;
+    if (!isPro() && el.dataset.id !== DEMO_INV_ID && byInv('capa_actions', el.dataset.id).length >= FREE_CAPA_PER_CUSTOM_RCA_LIMIT) {
+      openProModal('Unlimited CAPA Actions');
+      return;
+    }
     openModal(capaForm(el.dataset.id, null, {
       type: el.dataset.type || 'corrective',
       description: el.dataset.desc || '',
@@ -3519,12 +3727,62 @@ const ACTIONS = {
     });
   },
 
-  'print': () => window.print(),
-  'print-dashboard': () => window.print(),
+  'print': () => {
+    if (!isPro()) { openProModal('PDF & Print Reports'); return; }
+    window.print();
+  },
+  'print-dashboard': () => {
+    if (!isPro()) { openProModal('PDF & Print Reports'); return; }
+    window.print();
+  },
+
+  'open-pro': () => openProModal(),
+  'buy-pro': async (el) => {
+    const plan = el.dataset.plan || 'lifetime';
+    if (!window.TotalRCANative) return;
+    try {
+      toast('Connecting to store…');
+      const ok = await window.TotalRCANative.purchasePlan(plan);
+      if (ok) {
+        updateProPill();
+        closeModal();
+        render();
+        toast('Welcome to TotalRCA Pro!');
+      }
+    } catch (err) {
+      toast(err.message || 'Purchase cancelled or unavailable');
+    }
+  },
+  'restore-purchases': async () => {
+    if (!window.TotalRCANative) return;
+    try {
+      const ok = await window.TotalRCANative.restorePurchases();
+      updateProPill();
+      render();
+      toast(ok ? 'TotalRCA Pro restored!' : 'No active Pro purchase found');
+      if (ok) closeModal();
+    } catch (err) {
+      toast(err.message || 'Could not restore purchases');
+    }
+  },
+  'copy-sb-sql': async () => {
+    try {
+      await navigator.clipboard.writeText(SB_SETUP_SQL);
+      toast('Supabase Setup SQL copied to clipboard');
+    } catch (_) {
+      toast('Could not copy SQL — check clipboard permissions');
+    }
+  },
 
   'settings': () => openModal(settingsModal()),
   'save-settings': () => {
-    DB.app_settings = Object.assign({}, DB.app_settings, collect(['webhook_url']));
+    const cfg = collect(['supabase_url', 'supabase_key', 'webhook_url', 'custom_rest_url', 'custom_rest_token']);
+    const wantsExternalDb = !!(cfg.supabase_url || cfg.supabase_key || cfg.webhook_url || cfg.custom_rest_url);
+    if (wantsExternalDb && !isPro()) {
+      openProModal('Team Database Sync');
+      return;
+    }
+    DB.app_settings = Object.assign({}, DB.app_settings, cfg);
     const a = getAsanaCfg();
     const patEl = document.querySelector('#modalHost [name="asana_pat"]');
     if (patEl) a.pat = (patEl.value || '').trim();
@@ -3535,6 +3793,8 @@ const ACTIONS = {
       if (pEl) asanaSetSiteProject(site.id, pEl.value);
     });
     save(); closeModal(); render(); toast('Settings saved');
+    if (hasSupabase() && isPro()) syncFromSupabase(false);
+    else setSyncState('offline', 'Local only', 'Data stored locally on your device');
   },
   'asana-test': async () => {
     const a = getAsanaCfg();
@@ -3582,8 +3842,14 @@ const ACTIONS = {
     }
   },
   'sync-now': () => syncFromSupabase(true),
-  'export-json': () => {
-    const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
+  'export-json': async () => {
+    const filename = `totalrca-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const jsonStr = JSON.stringify(DB, null, 2);
+    if (window.TotalRCANative && await window.TotalRCANative.shareFile(filename, jsonStr, false)) {
+      toast('Shared backup');
+      return;
+    }
+    const blob = new Blob([jsonStr], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `totalrca-${new Date().toISOString().slice(0, 10)}.json`;
@@ -3713,6 +3979,32 @@ document.addEventListener('change', (e) => {
     render();
     return;
   }
+  if (e.target.matches('#modalHost input[name="industry_template"]')) {
+    const tpl = INDUSTRY_TEMPLATES[e.target.value];
+    if (tpl && e.target.value !== 'none') {
+      const setDropdown = (name, val) => {
+        const inp = document.querySelector(`#modalHost input[name="${name}"]`);
+        if (!inp) return;
+        inp.value = val;
+        const root = inp.closest('[data-gg-select]');
+        const opt = root && root.querySelector(`.gg-select-opt[data-value="${CSS.escape(val)}"]`);
+        if (opt) {
+          root.querySelectorAll('.gg-select-opt').forEach(o => { o.classList.remove('is-selected'); o.setAttribute('aria-selected', 'false'); });
+          opt.classList.add('is-selected');
+          opt.setAttribute('aria-selected', 'true');
+          const lbl = root.querySelector('.gg-select-label');
+          if (lbl) lbl.textContent = opt.dataset.label || opt.textContent.trim();
+        }
+      };
+      setDropdown('asset_category', tpl.asset_category);
+      setDropdown('fault_category', tpl.fault_category);
+      const voltEl = document.querySelector('#modalHost [name="voltage_class"]');
+      if (voltEl && tpl.voltage_class) voltEl.value = tpl.voltage_class;
+      const probEl = document.querySelector('#modalHost [name="problem_statement"]');
+      if (probEl && tpl.problem_statement && !probEl.value.trim()) probEl.value = tpl.problem_statement;
+    }
+    return;
+  }
   if (e.target.matches('#modalHost input[name="site_id"]')) {
     const s = siteById(e.target.value);
     if (s) {
@@ -3769,6 +4061,7 @@ document.addEventListener('change', (e) => {
   }
 });
 
+document.getElementById('proBtn')?.addEventListener('click', () => openProModal());
 document.getElementById('syncBtn')?.addEventListener('click', () => syncFromSupabase(true));
 document.getElementById('newRcaBtn').addEventListener('click', () => ACTIONS['new-rca']());
 document.getElementById('settingsBtn').addEventListener('click', () => ACTIONS['settings']());
@@ -3776,11 +4069,20 @@ document.getElementById('navLinks').addEventListener('click', (e) => { /* handle
 window.addEventListener('hashchange', render);
 window.addEventListener('resize', closeDropdown);
 window.addEventListener('focus', () => {
-  if (Date.now() - lastSyncAt > 15000) syncFromSupabase(false);
+  if (hasSupabase() && isPro() && Date.now() - lastSyncAt > 15000) syncFromSupabase(false);
+});
+window.addEventListener('totalrca:pro-changed', () => {
+  updateProPill();
+  render();
 });
 
 /* ---------- boot ---------- */
 
 load();
+updateProPill();
 render();
+if (window.TotalRCANative) {
+  window.TotalRCANative.initStorageMirror(STORE_KEY, () => { load(); render(); });
+  window.TotalRCANative.initPurchases().then(() => updateProPill());
+}
 syncFromSupabase(false);

@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#F3F2F1">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="assets/favicon.svg?v=7" type="image/svg+xml">
-<link rel="stylesheet" href="assets/app.css?v=15">
+<link rel="stylesheet" href="assets/app.css?v=16">
 </head>
 <body>
 
@@ -34,9 +34,12 @@
     </nav>
 
     <div class="nav-right">
-      <button class="sync-pill" id="syncBtn" title="Cloud sync status — click to refresh" aria-label="Cloud sync status">
+      <button class="sync-pill" id="proBtn" title="TotalRCA Pro status" aria-label="TotalRCA Pro status">
+        <span class="pro-text">Free Plan</span>
+      </button>
+      <button class="sync-pill" id="syncBtn" title="Sync status — click to refresh" aria-label="Sync status">
         <span class="sync-dot"></span>
-        <span class="sync-text">Syncing…</span>
+        <span class="sync-text">Local only</span>
       </button>
       <button class="btn btn-primary" id="newRcaBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
