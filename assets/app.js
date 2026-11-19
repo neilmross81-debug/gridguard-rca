@@ -406,9 +406,10 @@ function currentUser() {
     const found = (DB.app_users || []).find(u => u.id === s.userId);
     if (found) return found;
   }
-  // Local-first default: auto-sign in as Local Engineer when no external team DB is active
+  // Local-first default on mobile apps when no external team DB is active
+  const onNative = !!(window.TotalRCANative && window.TotalRCANative.isNative());
   const sbCfg = typeof getSupabaseCfg === 'function' ? getSupabaseCfg() : null;
-  if (!sbCfg || !sbCfg.url || !sbCfg.key) {
+  if (onNative && (!sbCfg || !sbCfg.url || !sbCfg.key)) {
     return (DB.app_users || [])[0] || { id: 'usr-demo', username: 'local', full_name: 'Local Engineer', role_title: 'Owner', is_global_admin: 1, site_roles: {}, assigned_rcas: [] };
   }
   return null;
@@ -511,12 +512,15 @@ const INV_CHILD_TABLES = ['timeline_events', 'five_whys_nodes', 'ishikawa_causes
 const SB_TABLES = ['sites', 'app_users', 'investigations', ...INV_CHILD_TABLES];
 const SB_MIGRATED_KEY = 'gridguard_supabase_migrated_v1';
 
+const WEB_DEFAULT_SUPABASE_URL = 'https://nhhtxfimvlapqlbvcrlz.supabase.co';
+const WEB_DEFAULT_SUPABASE_KEY = 'sb_publishable_5gmDFx3BwVPjNBxjobriDQ_LpDxDAnl';
+
 function getSupabaseCfg() {
   const s = (typeof DB !== 'undefined' && DB && DB.app_settings) ? DB.app_settings : {};
-  return {
-    url: (s.supabase_url || '').trim().replace(/\/+$/, ''),
-    key: (s.supabase_key || '').trim(),
-  };
+  const onNative = !!(window.TotalRCANative && window.TotalRCANative.isNative());
+  const url = (s.supabase_url || (!onNative ? WEB_DEFAULT_SUPABASE_URL : '')).trim().replace(/\/+$/, '');
+  const key = (s.supabase_key || (!onNative ? WEB_DEFAULT_SUPABASE_KEY : '')).trim();
+  return { url, key };
 }
 const hasSupabase = () => { const c = getSupabaseCfg(); return !!(c.url && c.key); };
 
