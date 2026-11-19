@@ -138,7 +138,7 @@
   window.TotalRCANative = {
     isNative,
     platform,
-    isPro: () => proActive || loadLocalProFallback(),
+    isPro: () => !isNative() || proActive || loadLocalProFallback(),
     setProDev: (v) => saveLocalProFallback(v),
     initStorageMirror,
     mirrorSave,

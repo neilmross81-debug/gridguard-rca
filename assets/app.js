@@ -2959,6 +2959,11 @@ create table if not exists attachments (id text primary key, investigation_id te
 function updateProPill() {
   const btn = document.getElementById('proBtn');
   if (!btn) return;
+  if (!window.TotalRCANative || !window.TotalRCANative.isNative()) {
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = '';
   const active = isPro();
   btn.className = `sync-pill ${active ? 'ok' : 'warn'}`;
   const label = btn.querySelector('.pro-text');
