@@ -9,7 +9,7 @@ const DEMO_INV_ID = 'rca-pump-p104a-001';
 const FREE_CUSTOM_RCA_LIMIT = 1;
 const FREE_CAPA_PER_CUSTOM_RCA_LIMIT = 3;
 
-const isPro = () => !!(window.TotalRCANative && window.TotalRCANative.isPro());
+const isPro = () => !window.TotalRCANative || !window.TotalRCANative.isNative() || !!window.TotalRCANative.isPro();
 const customRcas = () => (DB?.investigations || []).filter(i => i.id !== DEMO_INV_ID);
 
 /* ---------- vocabularies ---------- */
