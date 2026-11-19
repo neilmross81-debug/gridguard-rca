@@ -748,14 +748,14 @@ function asanaTaskPayload(capa) {
   const typeLabel = CAPA_TYPE[capa.type] || capa.type;
   const linkUrl = inv ? `${location.origin}${location.pathname}#/investigations/${inv.id}/capa` : '';
   const notes = [
-    `GridGuard RCA CAPA Action`,
+    `TotalRCA CAPA Action`,
     inv ? `RCA: ${inv.document_code} — ${inv.title}` : '',
     site ? `Site: ${site.code} — ${site.name}${site.region ? ` (${site.region})` : ''}` : '',
     `Type: ${typeLabel} | Status: ${stLabel}`,
     `Owner: ${capa.owner || 'Unassigned'}`,
     capa.source_ref ? `Source: ${capa.source_ref}` : '',
     capa.verification_notes ? `Verification: ${capa.verification_notes}` : '',
-    linkUrl ? `Open in GridGuard: ${linkUrl}` : '',
+    linkUrl ? `Open in TotalRCA: ${linkUrl}` : '',
     `[GridGuard-CAPA:${capa.id}]`,
   ].filter(Boolean).join('\n');
 
@@ -934,7 +934,7 @@ function viewLanding() {
             <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/>
           </svg>
         </div>
-        <h1 class="landing-title">GridGuard RCA</h1>
+        <h1 class="landing-title">TotalRCA</h1>
         <p class="landing-sub">HV &amp; Renewable Operations · Multi-Site Root Cause Intelligence</p>
       </div>
 
@@ -974,7 +974,7 @@ function viewLanding() {
             ${field('Password (plain text for testing)', `<input class="input" type="text" name="login_password" value="${esc(prePass)}" autocomplete="current-password" required>`)}
             <div id="loginError" class="dim" style="color:var(--red);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>
             <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px 16px" data-action="login">
-              ${icon('check')} Sign in to GridGuard
+              ${icon('check')} Sign in to TotalRCA
             </button>
           </form>
           <div class="login-quick">
@@ -1876,7 +1876,7 @@ function tabReport(i) {
                 <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/>
               </svg>
             </span>
-            <span>GridGuard RCA</span>
+            <span>TotalRCA</span>
           </div>
           <span class="report-cover-class">Engineering Audit Report · Confidential</span>
         </div>
@@ -1994,7 +1994,7 @@ function tabReport(i) {
 
     <div class="report-signoff">
       <div class="eyebrow" style="margin-bottom:4px">Document Sign-Off &amp; Audit Approval</div>
-      <p class="dim" style="margin:0;font-size:12.5px">GridGuard RCA Engineering Report · ${esc(i.document_code)} · Generated ${generatedAt}</p>
+      <p class="dim" style="margin:0;font-size:12.5px">TotalRCA Engineering Report · ${esc(i.document_code)} · Generated ${generatedAt}</p>
       <div class="report-signoff-grid">
         <div class="report-sig-box"><strong>Investigator</strong>${esc(i.investigator_name || '—')}${i.investigator_role ? ' · ' + esc(i.investigator_role) : ''}</div>
         <div class="report-sig-box"><strong>Technical Reviewer</strong>Signature / Date</div>
@@ -2734,14 +2734,14 @@ function downloadTimelineTemplate() {
     const wsGuide = XLSX.utils.aoa_to_sheet(catGuide);
     wsGuide['!cols'] = [{ wch: 22 }, { wch: 58 }];
     XLSX.utils.book_append_sheet(wb, wsGuide, 'Categories');
-    XLSX.writeFile(wb, 'gridguard-timeline-template.xlsx');
+    XLSX.writeFile(wb, 'totalrca-timeline-template.xlsx');
     toast('Excel template downloaded');
   } else {
     const csv = [headers, ...sampleRows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'gridguard-timeline-template.csv';
+    a.download = 'totalrca-timeline-template.csv';
     a.click();
     URL.revokeObjectURL(a.href);
     toast('CSV template downloaded');
@@ -3586,7 +3586,7 @@ const ACTIONS = {
     const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `gridguard-rca-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `totalrca-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
     toast('Exported');
@@ -3759,11 +3759,11 @@ document.addEventListener('change', (e) => {
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
-        if (!data || !Array.isArray(data.investigations)) throw new Error('not a GridGuard store');
+        if (!data || !Array.isArray(data.investigations)) throw new Error('not a TotalRCA store');
         DB = Object.assign(seed(), data);
         ensureSitesAndUsers(false);
         save(); sbPushAll(DB); closeModal(); render(); toast('Data imported & synced');
-      } catch (err) { toast('That file is not a GridGuard export'); }
+      } catch (err) { toast('That file is not a TotalRCA export'); }
     };
     reader.readAsText(file);
   }
