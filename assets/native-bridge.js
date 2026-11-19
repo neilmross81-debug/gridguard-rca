@@ -8,7 +8,7 @@
   // Replace these with your RevenueCat public SDK keys when ready for store builds:
   const RC_API_KEYS = {
     ios: '',
-    android: '',
+    android: 'goog_uDdJOTBZUNmhlcWfhRoMqtZAqqj',
   };
 
   const cap = () => window.Capacitor || null;
