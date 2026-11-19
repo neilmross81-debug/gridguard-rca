@@ -4,7 +4,7 @@
    ========================================================================== */
 
 (function () {
-  const RC_ENTITLEMENT = 'pro';
+  const RC_ENTITLEMENT = 'totalrca_pro';
   // Replace these with your RevenueCat public SDK keys when ready for store builds:
   const RC_API_KEYS = {
     ios: '',
