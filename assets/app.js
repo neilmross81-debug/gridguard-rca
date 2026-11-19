@@ -444,8 +444,8 @@ function userRoleSummary(user) {
   if (roles.includes('admin')) return 'Site Admin';
   if (roles.includes('editor')) return 'Editor';
   if (roles.includes('viewer')) return 'Viewer';
-  if ((user.assigned_rcas || []).length) return 'Assigned RCA';
-  return 'User';
+  if ((user.assigned_rcas || []).length) return 'Editor (Assigned RCA)';
+  return 'Editor (Unassigned)';
 }
 function siteFilterSelect() {
   const sites = accessibleSites(currentUser());
@@ -908,7 +908,14 @@ async function asanaSyncTwoWay(scopeInvId = null) {
 
 /* ---------- landing / login ---------- */
 
+let landingMode = 'login';
+let landingSuccessMsg = '';
+let landingPrefill = null;
+
 function viewLanding() {
+  const isReg = landingMode === 'register';
+  const preUser = landingPrefill ? landingPrefill.username : 'demo';
+  const prePass = landingPrefill ? landingPrefill.password : 'demo';
   return `
   <section class="landing">
     <div class="landing-grid"></div>
@@ -932,24 +939,51 @@ function viewLanding() {
       </div>
 
       <div class="login-card">
-        <div class="login-demo-banner">
-          <strong>Tester Demo Account (Pre-filled):</strong><br>
-          Username: <span class="mono">demo</span> &nbsp;·&nbsp; Password: <span class="mono">demo</span>
+        <div class="seg" style="width:100%;display:grid;grid-template-columns:1fr 1fr;margin-bottom:16px">
+          <button type="button" class="${!isReg ? 'on' : ''}" data-action="landing-mode" data-mode="login">Sign in</button>
+          <button type="button" class="${isReg ? 'on' : ''}" data-action="landing-mode" data-mode="register">Create account</button>
         </div>
-        <form id="loginForm">
-          ${field('Username', `<input class="input" type="text" name="login_username" value="demo" autocomplete="username" required>`)}
-          ${field('Password (plain text for testing)', `<input class="input" type="text" name="login_password" value="demo" autocomplete="current-password" required>`)}
-          <div id="loginError" class="dim" style="color:var(--red);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>
-          <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px 16px" data-action="login">
-            ${icon('check')} Sign in to GridGuard
-          </button>
-        </form>
-        <div class="login-quick">
-          <span>Quick switch role:</span>
-          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="demo" data-pass="demo">Editor (demo)</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="viewer" data-pass="demo">Viewer</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="admin" data-pass="demo">Admin</button>
-        </div>
+
+        ${isReg ? `
+          <div class="login-demo-banner">
+            <strong>New Editor Account:</strong><br>
+            Create your username &amp; password below. Accounts default to <strong>Editor</strong> (unassigned) until an Admin assigns your site(s).
+          </div>
+          <form id="registerForm">
+            ${field('Username', `<input class="input mono" type="text" name="reg_username" placeholder="e.g. j.smith" autocomplete="username" required>`)}
+            ${field('Password', `<input class="input" type="password" name="reg_password" placeholder="Choose a password" autocomplete="new-password" required>`)}
+            <div class="form-grid">
+              ${field('Full Name (optional)', `<input class="input" type="text" name="reg_full_name" placeholder="Jane Smith">`)}
+              ${field('Job Title (optional)', `<input class="input" type="text" name="reg_role_title" placeholder="HV Engineer">`)}
+            </div>
+            <div id="registerError" class="dim" style="color:var(--red);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px 16px" data-action="register">
+              ${icon('plus')} Create Editor Account
+            </button>
+          </form>
+        ` : `
+          ${landingSuccessMsg ? `<div class="login-demo-banner" style="background:rgba(16,124,16,0.1);border-color:rgba(16,124,16,0.3);color:var(--ink)">
+            <strong style="color:var(--green)">Account Created:</strong> ${esc(landingSuccessMsg)}
+          </div>` : `
+          <div class="login-demo-banner">
+            <strong>Tester Demo Account (Pre-filled):</strong><br>
+            Username: <span class="mono">demo</span> &nbsp;·&nbsp; Password: <span class="mono">demo</span>
+          </div>`}
+          <form id="loginForm">
+            ${field('Username', `<input class="input" type="text" name="login_username" value="${esc(preUser)}" autocomplete="username" required>`)}
+            ${field('Password (plain text for testing)', `<input class="input" type="text" name="login_password" value="${esc(prePass)}" autocomplete="current-password" required>`)}
+            <div id="loginError" class="dim" style="color:var(--red);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px 16px" data-action="login">
+              ${icon('check')} Sign in to GridGuard
+            </button>
+          </form>
+          <div class="login-quick">
+            <span>Quick switch role:</span>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="demo" data-pass="demo">Editor (demo)</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="viewer" data-pass="demo">Viewer</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="admin" data-pass="demo">Admin</button>
+          </div>
+        `}
       </div>
 
       <div class="landing-features">
@@ -1055,6 +1089,15 @@ function viewDashboard() {
       </div>`;
     }).join('') || `<div class="empty"><strong>No open actions</strong>Every corrective and preventive action is closed out.</div>`;
 
+  const me = currentUser();
+  const hasAnySiteOrRca = accessibleSites(me).length > 0 || invs.length > 0;
+  const pendingBanner = !hasAnySiteOrRca
+    ? `<div class="prompt-box" style="margin-bottom:18px;border-left:3px solid var(--amber)">
+        <div class="prompt-box-title">Pending Site Assignment</div>
+        <div style="font-size:13.5px;color:var(--ink-2)">Your <strong>Editor</strong> account (<code>@${esc(me?.username || '')}</code>) is active, but no operational sites or RCAs have been assigned to you yet. Once an Administrator assigns you a site in <strong>Sites &amp; Users</strong>, you will be able to create RCAs and view or edit RCAs for that site.</div>
+      </div>`
+    : '';
+
   return `
   <div class="page-head">
     <div>
@@ -1068,6 +1111,7 @@ function viewDashboard() {
       <button class="btn" data-action="print-dashboard">${icon('print')} Export</button>
     </div>
   </div>
+  ${pendingBanner}
 
   <div class="stats">
     ${stat('cyan',  'clipboard', invs.length, 'Accessible RCAs', `${invs.filter(i => i.status === 'inReview').length} awaiting review`)}
@@ -2052,7 +2096,7 @@ function viewAdmin() {
             const st = siteById(sid);
             const tone = role === 'admin' ? 'accent' : role === 'editor' ? 'cyan' : 'slate';
             return chip(`${st ? st.code : sid}: ${role}`, tone);
-          }).join(' ') || '<span class="dim">No site roles</span>';
+          }).join(' ') || chip('Editor · Pending site', 'amber');
     const rcaCount = Array.isArray(u.assigned_rcas) ? u.assigned_rcas.length : 0;
     const canDelete = u.id !== 'usr-demo' && (!me || u.id !== me.id);
     return `<tr>
@@ -2987,6 +3031,52 @@ function requireEdit(invId) {
 const ACTIONS = {
   'close-modal': closeModal,
 
+  'landing-mode': (el) => {
+    landingMode = el.dataset.mode === 'register' ? 'register' : 'login';
+    landingSuccessMsg = '';
+    render();
+  },
+  'register': async () => {
+    const form = document.getElementById('registerForm');
+    if (!form) return;
+    const uname = (form.querySelector('[name="reg_username"]')?.value || '').trim();
+    const pass = (form.querySelector('[name="reg_password"]')?.value || '');
+    const fullName = (form.querySelector('[name="reg_full_name"]')?.value || '').trim();
+    const roleTitle = (form.querySelector('[name="reg_role_title"]')?.value || '').trim();
+    const errEl = document.getElementById('registerError');
+    if (!uname || !pass) {
+      if (errEl) errEl.textContent = 'Username and password are required.';
+      return;
+    }
+    if (/\s/.test(uname)) {
+      if (errEl) errEl.textContent = 'Username cannot contain spaces.';
+      return;
+    }
+    const dup = (DB.app_users || []).find(u => String(u.username || '').toLowerCase() === uname.toLowerCase());
+    if (dup) {
+      if (errEl) errEl.textContent = 'That username is already taken. Choose another or sign in.';
+      return;
+    }
+    const newUser = {
+      id: uid('usr'),
+      username: uname,
+      password: pass,
+      full_name: fullName || uname,
+      role_title: roleTitle || 'Editor',
+      is_global_admin: 0,
+      site_roles: {},
+      assigned_rcas: [],
+    };
+    if (!Array.isArray(DB.app_users)) DB.app_users = [];
+    DB.app_users.push(newUser);
+    save();
+    await sbUpsert('app_users', newUser);
+    landingPrefill = { username: uname, password: pass };
+    landingSuccessMsg = `@${uname} created as an Editor (pending site assignment). Sign in below or wait for an Admin to assign your site.`;
+    landingMode = 'login';
+    render();
+    toast(`Account @${uname} created`);
+  },
   'login': () => {
     const form = document.getElementById('loginForm');
     if (!form) return;
@@ -2998,6 +3088,8 @@ const ACTIONS = {
       if (errEl) errEl.textContent = 'Invalid username or password. Try demo / demo.';
       return;
     }
+    landingSuccessMsg = '';
+    landingPrefill = null;
     setSession(user.id);
     activeRegion = 'all';
     activeSiteId = 'all';
@@ -3017,6 +3109,9 @@ const ACTIONS = {
   },
   'logout': () => {
     clearSession();
+    landingMode = 'login';
+    landingSuccessMsg = '';
+    landingPrefill = null;
     activeRegion = 'all';
     activeSiteId = 'all';
     closeModal();
@@ -3527,6 +3622,9 @@ document.addEventListener('submit', (e) => {
   if (e.target && e.target.id === 'loginForm') {
     e.preventDefault();
     ACTIONS.login();
+  } else if (e.target && e.target.id === 'registerForm') {
+    e.preventDefault();
+    ACTIONS.register();
   }
 });
 
