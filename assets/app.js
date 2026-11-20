@@ -1921,6 +1921,89 @@ function tabTimeline(i) {
   ${renderVisualTimeline(events)}`;
 }
 
+function renderWhysFlowSvg(whys) {
+  if (!whys.length) return '';
+  const items = whys.slice(0, 8);
+  const boxW = 680, rowH = 54, pad = 12;
+  const h = items.length * rowH + pad * 2;
+  const rows = items.map((n, idx) => {
+    const y = pad + idx * rowH;
+    const isRoot = !!n.is_root_cause;
+    const fill = isRoot ? '#DFF6DD' : '#F3F2F1';
+    const stroke = isRoot ? '#107C10' : '#0078D4';
+    const badgeFill = isRoot ? '#107C10' : '#0078D4';
+    const text = (n.answer || n.question || '').replace(/\s+/g, ' ').trim();
+    const label = text.length > 78 ? text.slice(0, 75) + '…' : text;
+    const arrow = idx < items.length - 1
+      ? `<line x1="36" y1="${y + 38}" x2="36" y2="${y + rowH}" stroke="#94A3B8" stroke-width="2" stroke-dasharray="3,2"/><polygon points="32,${y + rowH - 5} 40,${y + rowH - 5} 36,${y + rowH}" fill="#94A3B8"/>`
+      : '';
+    return `<g>
+      ${arrow}
+      <rect x="12" y="${y}" width="${boxW - 24}" height="38" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="${isRoot ? 1.8 : 1.1}"/>
+      <rect x="18" y="${y + 7}" width="44" height="24" rx="4" fill="${badgeFill}"/>
+      <text x="40" y="${y + 23}" text-anchor="middle" font-size="11" font-weight="700" fill="#FFFFFF" font-family="system-ui,sans-serif">L${esc(n.level)}</text>
+      <text x="74" y="${y + 23}" font-size="12" fill="#1B1A19" font-family="system-ui,sans-serif">${esc(label)}${isRoot ? '  [ROOT CAUSE]' : ''}</text>
+    </g>`;
+  }).join('');
+  return `<div class="card" style="padding:12px;margin-bottom:14px;overflow-x:auto">
+    <svg viewBox="0 0 ${boxW} ${h}" style="width:100%;max-width:680px;height:auto;display:block" role="img" aria-label="5 Whys causal chain diagram">${rows}</svg>
+  </div>`;
+}
+
+function renderFmeaChartSvg(fmea) {
+  if (!fmea.length) return '';
+  const items = fmea.slice(0, 8);
+  const w = 680, rowH = 34, left = 210, barMaxW = 390, pad = 16;
+  const maxVal = Math.max(250, ...items.map(rpnOf));
+  const h = items.length * rowH + pad * 2 + 22;
+  const threshX = left + Math.round((100 / maxVal) * barMaxW);
+
+  const bars = items.map((f, idx) => {
+    const rpn = rpnOf(f);
+    const y = pad + idx * rowH;
+    const bw = Math.max(4, Math.round((rpn / maxVal) * barMaxW));
+    const color = rpn >= 200 ? '#D13438' : rpn >= 100 ? '#CA5010' : rpn >= 50 ? '#0078D4' : '#107C10';
+    const name = String(f.component || 'Component').trim();
+    const shortName = name.length > 28 ? name.slice(0, 26) + '…' : name;
+    return `<g>
+      <text x="${left - 8}" y="${y + 16}" text-anchor="end" font-size="11.5" fill="#1B1A19" font-family="system-ui,sans-serif">${esc(shortName)}</text>
+      <rect x="${left}" y="${y + 4}" width="${barMaxW}" height="18" rx="3" fill="#F3F2F1"/>
+      <rect x="${left}" y="${y + 4}" width="${bw}" height="18" rx="3" fill="${color}"/>
+      <text x="${left + bw + 8}" y="${y + 17}" font-size="11.5" font-weight="700" fill="${color}" font-family="system-ui,sans-serif">${rpn}</text>
+    </g>`;
+  }).join('');
+
+  return `<div class="card" style="padding:12px;margin-bottom:14px;overflow-x:auto">
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;max-width:680px;height:auto;display:block" role="img" aria-label="FMEA Risk Priority Number chart">
+      <line x1="${threshX}" y1="${pad - 4}" x2="${threshX}" y2="${h - 24}" stroke="#CA5010" stroke-width="1.2" stroke-dasharray="4,3"/>
+      <text x="${threshX}" y="${h - 8}" text-anchor="middle" font-size="10.5" fill="#CA5010" font-family="system-ui,sans-serif">High Risk Threshold (RPN 100)</text>
+      ${bars}
+    </svg>
+  </div>`;
+}
+
+function renderCapaProgressBar(capas) {
+  if (!capas.length) return '';
+  const total = capas.length;
+  const done = capas.filter(c => ['verified', 'closed'].includes(c.status)).length;
+  const prog = capas.filter(c => c.status === 'inProgress').length;
+  const over = capas.filter(c => c.status === 'overdue' || (c.target_date && new Date(c.target_date) < new Date() && !['verified', 'closed'].includes(c.status))).length;
+  const open = Math.max(0, total - done - prog - over);
+  const pct = (n) => ((n / total) * 100).toFixed(1);
+  return `<div class="card" style="padding:14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:12.5px">
+      <strong>CAPA Completion (${done}/${total} verified or closed · ${Math.round((done / total) * 100)}%)</strong>
+      <span class="muted">${done} Done · ${prog} In Progress · ${open} Open${over ? ` · ${over} Overdue` : ''}</span>
+    </div>
+    <div style="display:flex;height:12px;border-radius:999px;overflow:hidden;background:#EDEBE9">
+      ${done ? `<div style="width:${pct(done)}%;background:#107C10" title="Verified/Closed: ${done}"></div>` : ''}
+      ${prog ? `<div style="width:${pct(prog)}%;background:#0078D4" title="In Progress: ${prog}"></div>` : ''}
+      ${open ? `<div style="width:${pct(open)}%;background:#8A8886" title="Open: ${open}"></div>` : ''}
+      ${over ? `<div style="width:${pct(over)}%;background:#D13438" title="Overdue: ${over}"></div>` : ''}
+    </div>
+  </div>`;
+}
+
 function tabReport(i) {
   const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
   const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
@@ -1948,7 +2031,7 @@ function tabReport(i) {
   return `
   <div class="report" id="reportBody">
     <div class="section-head no-print">
-      <div><h2 class="h3" style="margin:0;border:0;padding:0">Engineering RCA report</h2><p>Includes cover page, table of contents, and sign-off block for PDF export</p></div>
+      <div><h2 class="h3" style="margin:0;border:0;padding:0">Engineering RCA report</h2><p>Includes cover page, visual diagrams, table of contents, and sign-off block</p></div>
       <button class="btn btn-primary btn-sm" data-action="print">${icon('print')} Print / Save PDF</button>
     </div>
 
@@ -2025,6 +2108,7 @@ function tabReport(i) {
     ${renderVisualTimeline(events)}
 
     <h2 id="rep-sec-4"><span class="sec-num">04</span> 5 Whys interrogative chain</h2>
+    ${renderWhysFlowSvg(whys)}
     ${whys.map(n => `<div class="report-why ${n.is_root_cause ? 'root' : ''}">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
         <strong>Why L${n.level}</strong>
@@ -2037,6 +2121,7 @@ function tabReport(i) {
     </div>`).join('') || '<p class="dim">No chain recorded.</p>'}
 
     <h2 id="rep-sec-5"><span class="sec-num">05</span> Ishikawa 6M breakdown</h2>
+    ${ish.length ? `<div class="card" style="padding:12px;margin-bottom:14px;overflow-x:auto">${renderFishboneSvg(i, ish)}</div>` : ''}
     <table class="table"><thead><tr><th>6M vector</th><th>Identified causes</th></tr></thead><tbody>
       ${Object.keys(VECTOR).map(v => {
         const items = ish.filter(c => c.vector === v);
@@ -2046,6 +2131,7 @@ function tabReport(i) {
     </tbody></table>
 
     <h2 id="rep-sec-6"><span class="sec-num">06</span> Failure mode &amp; effects analysis (FMEA)</h2>
+    ${renderFmeaChartSvg(fmea)}
     <table class="table"><thead><tr><th>Component</th><th>Failure mode</th><th>Potential effect</th><th class="num">S</th><th class="num">O</th><th class="num">D</th><th class="num">RPN</th><th>Risk</th></tr></thead><tbody>
       ${fmea.map(f => { const [band] = riskBand(rpnOf(f)); return `<tr>
         <td><strong>${esc(f.component)}</strong></td><td class="muted">${esc(f.failure_mode)}</td><td class="muted">${esc(f.potential_effect)}</td>
@@ -2057,6 +2143,7 @@ function tabReport(i) {
     <div class="report-callout ok"><p style="margin:0"><strong>${esc(i.root_cause_conclusion || 'Not yet concluded.')}</strong></p></div>
 
     <h2 id="rep-sec-8"><span class="sec-num">08</span> Corrective &amp; preventive action (CAPA) plan</h2>
+    ${renderCapaProgressBar(capas)}
     <table class="table"><thead><tr><th>Type</th><th>Action &amp; verification</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody>
       ${capas.map(c => `<tr>
         <td>${esc(CAPA_TYPE[c.type] || c.type)}</td>

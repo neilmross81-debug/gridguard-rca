@@ -200,8 +200,10 @@
   table{width:100%;border-collapse:collapse;margin:10px 0 18px;font-size:12.5px}
   th,td{border:1px solid #d1d5db;padding:6px 8px;text-align:left;vertical-align:top} th{background:#f3f4f6}
   .chip{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#e5e7eb;color:#111827}
+  svg{max-width:100%;height:auto;display:block}
   .no-print,.btn,button{display:none!important}
-  .card,.report-cover,.report-toc,.report-why,.report-signoff{border:1px solid #d1d5db;border-radius:8px;padding:14px;margin-bottom:12px}
+  .card,.report-cover,.report-toc,.report-why,.report-signoff,.tl-card{border:1px solid #d1d5db;border-radius:8px;padding:14px;margin-bottom:12px}
+  .tl-item{margin-bottom:10px} .tl-head{display:flex;gap:8px;align-items:center;font-size:12px;color:#4b5563;margin-bottom:4px} .tl-title{font-weight:600}
 </style></head><body>${bodyHtml}</body></html>`;
     return shareFile(filename, html, false);
   }
