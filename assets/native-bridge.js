@@ -17,6 +17,7 @@
 
   let rcConfigured = false;
   let proActive = false;
+  let cachedPrices = { lifetime: '£34.99', annual: '£29.99', monthly: '£4.99' };
 
   function loadLocalProFallback() {
     try {
@@ -66,6 +67,21 @@
     } catch (_) {}
   }
 
+  function updateCachedPrices(offerings) {
+    const pkgs = offerings && offerings.current && offerings.current.availablePackages;
+    if (!Array.isArray(pkgs)) return;
+    for (const key of ['lifetime', 'annual', 'monthly']) {
+      const match = pkgs.find(p =>
+        p.identifier === `$rc_${key}` ||
+        p.identifier === key ||
+        (p.packageType && p.packageType.toLowerCase() === key)
+      );
+      if (match && match.product && match.product.priceString) {
+        cachedPrices[key] = match.product.priceString;
+      }
+    }
+  }
+
   async function initPurchases() {
     proActive = loadLocalProFallback();
     const Purchases = plugin('Purchases');
@@ -80,7 +96,11 @@
         await Purchases.configure({ apiKey });
         rcConfigured = true;
       }
-      const info = await Purchases.getCustomerInfo();
+      const [info, offerings] = await Promise.all([
+        Purchases.getCustomerInfo(),
+        Purchases.getOfferings().catch(() => null),
+      ]);
+      updateCachedPrices(offerings);
       const active = !!(info && info.customerInfo && info.customerInfo.entitlements && info.customerInfo.entitlements.active && info.customerInfo.entitlements.active[RC_ENTITLEMENT]);
       saveLocalProFallback(active);
     } catch (_) {}
@@ -104,6 +124,7 @@
   async function purchasePlan(planId) {
     const Purchases = await ensurePurchasesReady();
     const offerings = await Purchases.getOfferings();
+    updateCachedPrices(offerings);
     const current = offerings && offerings.current;
     if (!current || !Array.isArray(current.availablePackages) || !current.availablePackages.length) {
       throw new Error('No store packages available right now.');
@@ -120,10 +141,19 @@
       throw new Error(`Requested plan (${want}) is not configured in the current offering.`);
     }
 
-    const res = await Purchases.purchasePackage({ aPackage: pkg });
-    const active = !!(res && res.customerInfo && res.customerInfo.entitlements && res.customerInfo.entitlements.active && res.customerInfo.entitlements.active[RC_ENTITLEMENT]);
-    saveLocalProFallback(active);
-    return active;
+    try {
+      const res = await Purchases.purchasePackage({ aPackage: pkg });
+      const active = !!(res && res.customerInfo && res.customerInfo.entitlements && res.customerInfo.entitlements.active && res.customerInfo.entitlements.active[RC_ENTITLEMENT]);
+      saveLocalProFallback(active);
+      return active;
+    } catch (err) {
+      if (err && (err.userCancelled || err.code === 1 || String(err.message || '').toLowerCase().includes('cancel'))) {
+        const ce = new Error('Purchase cancelled');
+        ce.userCancelled = true;
+        throw ce;
+      }
+      throw err;
+    }
   }
 
   async function restorePurchases() {
@@ -191,10 +221,17 @@
     });
   }
 
+  window.addEventListener('online', () => {
+    if (isNative() && !(proActive || loadLocalProFallback())) {
+      initPurchases();
+    }
+  });
+
   window.TotalRCANative = {
     isNative,
     platform,
     isPro: () => !isNative() || proActive || loadLocalProFallback(),
+    getPrices: () => Object.assign({}, cachedPrices),
     setProDev: (v) => saveLocalProFallback(v),
     initStorageMirror,
     mirrorSave,

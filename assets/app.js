@@ -2990,6 +2990,9 @@ function updateProPill() {
 
 function proModal(reason = '') {
   const active = isPro();
+  const prices = (window.TotalRCANative && typeof window.TotalRCANative.getPrices === 'function')
+    ? window.TotalRCANative.getPrices()
+    : { lifetime: '£34.99', annual: '£29.99', monthly: '£4.99' };
   return {
     eyebrow: 'TotalRCA Pro',
     title: active ? 'Pro Unlocked' : 'Upgrade to TotalRCA Pro',
@@ -3014,7 +3017,7 @@ function proModal(reason = '') {
               <strong>Pro Lifetime</strong>
               ${chip('Best Value', 'cyan')}
             </div>
-            <div style="font-size:22px;font-weight:700;margin-bottom:4px">£34.99 <span class="muted" style="font-size:12.5px;font-weight:400">/ one-time</span></div>
+            <div style="font-size:22px;font-weight:700;margin-bottom:4px">${esc(prices.lifetime)} <span class="muted" style="font-size:12.5px;font-weight:400">/ one-time</span></div>
             <p class="muted" style="font-size:12.5px;margin:0 0 12px">Pay once, own forever. Ideal for engineers &amp; field techs.</p>
             <button class="btn btn-primary" style="width:100%;justify-content:center" data-action="buy-pro" data-plan="lifetime">Unlock Lifetime</button>
           </div>
@@ -3023,11 +3026,11 @@ function proModal(reason = '') {
               <strong>Pro Annual / Monthly</strong>
               ${chip('Teams', 'slate')}
             </div>
-            <div style="font-size:22px;font-weight:700;margin-bottom:4px">£29.99<span class="muted" style="font-size:12.5px;font-weight:400">/yr</span> <span class="muted" style="font-size:13px">or £4.99/mo</span></div>
+            <div style="font-size:22px;font-weight:700;margin-bottom:4px">${esc(prices.annual)}<span class="muted" style="font-size:12.5px;font-weight:400">/yr</span> <span class="muted" style="font-size:13px">or ${esc(prices.monthly)}/mo</span></div>
             <p class="muted" style="font-size:12.5px;margin:0 0 12px">Easy to expense. Cancel anytime in App Store / Google Play.</p>
             <div class="chip-row" style="gap:8px">
-              <button class="btn btn-sm" style="flex:1;justify-content:center" data-action="buy-pro" data-plan="annual">Annual (£29.99)</button>
-              <button class="btn btn-sm" style="flex:1;justify-content:center" data-action="buy-pro" data-plan="monthly">Monthly (£4.99)</button>
+              <button class="btn btn-sm" style="flex:1;justify-content:center" data-action="buy-pro" data-plan="annual">Annual (${esc(prices.annual)})</button>
+              <button class="btn btn-sm" style="flex:1;justify-content:center" data-action="buy-pro" data-plan="monthly">Monthly (${esc(prices.monthly)})</button>
             </div>
           </div>
         </div>

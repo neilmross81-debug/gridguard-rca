@@ -1210,7 +1210,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
   .nav-inner { gap: 8px; flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; }
   .nav-links { order: 3; width: 100%; overflow-x: auto; padding-top: 4px; border-top: 1px solid var(--line); -webkit-overflow-scrolling: touch; }
-  #proBtn { padding: 0 8px; font-size: 11px; height: 26px; }
+  .nav-link { padding: 10px 12px; }
+  #proBtn { padding: 0 10px; font-size: 12px; height: 34px; }
+  .btn { min-height: 40px; padding: 0 14px; }
+  .btn-sm { min-height: 36px; padding: 0 12px; }
+  .icon-btn { width: 40px; height: 40px; }
+  .input, .select, .gg-select-trigger { min-height: 44px; font-size: 16px; }
+  .textarea { font-size: 16px; }
+  .seg button { min-height: 36px; padding: 0 12px; }
+  .tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 4px; }
+  .tab { flex: 0 0 auto; white-space: nowrap; padding: 10px 12px; }
   .page { padding-top: 20px; padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
   .page-head { flex-direction: column; align-items: flex-start; gap: 16px; }
   .stats { grid-template-columns: 1fr; }
