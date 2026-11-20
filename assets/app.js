@@ -2033,6 +2033,7 @@ function tabReport(i) {
     <div class="section-head no-print">
       <div><h2 class="h3" style="margin:0;border:0;padding:0">Engineering RCA report</h2><p>Includes cover page, visual diagrams, table of contents, and sign-off block</p></div>
       <div class="chip-row">
+        <button class="btn btn-sm" data-action="export-docx" data-id="${i.id}">${icon('download')} Export Word (.docx)</button>
         <button class="btn btn-sm" data-action="export-pptx" data-id="${i.id}">${icon('download')} Export PowerPoint (.pptx)</button>
         <button class="btn btn-primary btn-sm" data-action="print">${icon('print')} Print / Save PDF</button>
       </div>
@@ -3842,6 +3843,190 @@ const ACTIONS = {
     });
   },
 
+  'export-docx': async (el) => {
+    if (!isPro()) { openProModal('Word (.docx) Export'); return; }
+    const i = invById(el.dataset.id);
+    if (!i) return;
+    if (!window.docx) {
+      toast('Word generator is still loading — try again in a moment');
+      return;
+    }
+    toast('Building Word document…');
+    try {
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ShadingType, ImageRun } = window.docx;
+      const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const ish = byInv('ishikawa_causes', i.id);
+      const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
+      const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
+
+      const svgToPngBytes = async (svgEl) => {
+        if (!svgEl) return null;
+        try {
+          const clone = svgEl.cloneNode(true);
+          const vb = (svgEl.getAttribute('viewBox') || '').split(/\s+/).map(Number);
+          const w = (vb.length === 4 && vb[2]) ? vb[2] : (svgEl.clientWidth || 680);
+          const h = (vb.length === 4 && vb[3]) ? vb[3] : (svgEl.clientHeight || 300);
+          clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+          clone.setAttribute('width', String(w));
+          clone.setAttribute('height', String(h));
+          const svgStr = new XMLSerializer().serializeToString(clone);
+          const url = URL.createObjectURL(new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' }));
+          const img = await new Promise((resolve, reject) => {
+            const im = new Image();
+            im.onload = () => resolve(im);
+            im.onerror = reject;
+            im.src = url;
+          });
+          const scale = 2;
+          const canvas = document.createElement('canvas');
+          canvas.width = w * scale;
+          canvas.height = h * scale;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.scale(scale, scale);
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+          const buf = await blob.arrayBuffer();
+          return { bytes: new Uint8Array(buf), width: Math.min(580, w), height: Math.round(Math.min(580, w) * (h / w)) };
+        } catch (_) {
+          return null;
+        }
+      };
+
+      const svgs = Array.from(document.querySelectorAll('#reportBody svg'));
+      const whysSvg = svgs.find(s => (s.getAttribute('aria-label') || '').includes('5 Whys'));
+      const fishSvg = svgs.find(s => (s.getAttribute('aria-label') || '').includes('Ishikawa') || (s.getAttribute('class') || '').includes('fishbone'));
+      const fmeaSvg = svgs.find(s => (s.getAttribute('aria-label') || '').includes('FMEA'));
+      const [whysPng, fishPng, fmeaPng] = await Promise.all([
+        svgToPngBytes(whysSvg),
+        svgToPngBytes(fishSvg),
+        svgToPngBytes(fmeaSvg),
+      ]);
+
+      const h1 = (txt) => new Paragraph({ text: txt, heading: HeadingLevel.HEADING_1, spacing: { before: 280, after: 120 } });
+      const bodyP = (txt) => new Paragraph({ children: [new TextRun({ text: String(txt || '—'), size: 22 })], spacing: { after: 120 } });
+      const makeTable = (headers, rows) => new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: headers.map(h => new TableCell({
+              shading: { type: ShadingType.CLEAR, fill: '0F172A' },
+              children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 20 })] })],
+            })),
+          }),
+          ...rows.map(r => new TableRow({
+            children: r.map(c => new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: String(c ?? '—'), size: 20 })] })],
+            })),
+          })),
+        ],
+      });
+      const imgPara = (png) => png ? new Paragraph({
+        children: [new ImageRun({ data: png.bytes, transformation: { width: png.width, height: png.height }, type: 'png' })],
+        spacing: { before: 80, after: 160 },
+      }) : null;
+
+      const children = [
+        new Paragraph({ children: [new TextRun({ text: 'TOTALRCA — ENGINEERING ROOT CAUSE REPORT', bold: true, color: '0078D4', size: 20 })], spacing: { after: 80 } }),
+        new Paragraph({ text: i.title || 'Root Cause Analysis', heading: HeadingLevel.TITLE, spacing: { after: 160 } }),
+        makeTable(['Field', 'Value'], [
+          ['Document ID', i.document_code || '—'],
+          ['Facility / Site', i.facility_name || '—'],
+          ['Asset Category', ASSET[i.asset_category] || '—'],
+          ['Equipment Tag', i.equipment_tag || '—'],
+          ['Severity / Status', `${(SEVERITY[i.severity] || {}).label || i.severity} · ${(STATUS[i.status] || {}).label || i.status}`],
+          ['Incident Date (UTC)', fmtDateTime(i.incident_date)],
+          ['Investigator', `${i.investigator_name || '—'}${i.investigator_role ? ' — ' + i.investigator_role : ''}`],
+        ]),
+        h1('01. Problem Statement'),
+        bodyP(i.problem_statement || 'No problem statement recorded.'),
+        h1('02. Executive Summary'),
+        bodyP(i.executive_summary || 'No executive summary recorded.'),
+        h1('03. Sequence of Events (Timeline)'),
+        events.length
+          ? makeTable(['Timestamp (UTC)', 'Category', 'Event', 'Source'], events.map(ev => [
+              fmtDateTimeSec(ev.timestamp),
+              (TIMELINE_CAT[ev.category] || {}).label || ev.category,
+              `${ev.title}${ev.detail ? ' — ' + ev.detail : ''}`,
+              ev.source || '—',
+            ]))
+          : bodyP('No timeline events recorded.'),
+        h1('04. 5 Whys Causal Chain'),
+      ];
+      if (whysPng) children.push(imgPara(whysPng));
+      children.push(
+        whys.length
+          ? makeTable(['Level', 'Question', 'Finding', 'Evidence'], whys.map(n => [
+              `L${n.level}${n.is_root_cause ? ' (ROOT)' : ''}`,
+              n.question || '—',
+              n.answer || '—',
+              n.evidence || '—',
+            ]))
+          : bodyP('No 5 Whys levels recorded.'),
+        h1('05. Ishikawa (6M) Breakdown'),
+      );
+      if (fishPng) children.push(imgPara(fishPng));
+      children.push(
+        ish.length
+          ? makeTable(['6M Vector', 'Cause', 'Detail'], ish.map(c => [
+              VECTOR[c.vector] || c.vector,
+              `${c.is_primary ? '[PRIMARY] ' : ''}${c.cause}`,
+              c.detail || '—',
+            ]))
+          : bodyP('No Ishikawa causes recorded.'),
+        h1('06. Failure Mode & Effects Analysis (FMEA)'),
+      );
+      if (fmeaPng) children.push(imgPara(fmeaPng));
+      children.push(
+        fmea.length
+          ? makeTable(['Component', 'Failure Mode', 'S', 'O', 'D', 'RPN', 'Risk'], fmea.map(f => {
+              const rpn = rpnOf(f);
+              const [band] = riskBand(rpn);
+              return [f.component || '—', f.failure_mode || '—', f.severity, f.occurrence, f.detection, rpn, band];
+            }))
+          : bodyP('No FMEA items assessed.'),
+        h1('07. Verified Root Cause Conclusion'),
+        bodyP(i.root_cause_conclusion || 'Not yet concluded.'),
+        h1('08. Corrective & Preventive Action (CAPA) Plan'),
+        capas.length
+          ? makeTable(['Type', 'Action & Verification', 'Owner', 'Due', 'Status'], capas.map(c => [
+              CAPA_TYPE[c.type] || c.type,
+              `${c.description}${c.verification_notes ? '\nVerification: ' + c.verification_notes : ''}`,
+              c.owner || '—',
+              fmtDate(c.target_date),
+              (CAPA_STATUS[c.status] || {}).label || c.status,
+            ]))
+          : bodyP('No CAPA actions raised.'),
+        h1('09. Document Sign-Off'),
+        makeTable(['Role', 'Name / Signature / Date'], [
+          ['Investigator', `${i.investigator_name || '—'}${i.investigator_role ? ' · ' + i.investigator_role : ''}`],
+          ['Technical Reviewer', '___________________________  Date: __________'],
+          ['Operations / HSE Approval', '___________________________  Date: __________'],
+        ]),
+      );
+
+      const doc = new Document({ sections: [{ children: children.filter(Boolean) }] });
+      const fileName = `${(i.document_code || 'TotalRCA-Report').replace(/[^a-z0-9._-]/gi, '_')}.docx`;
+      if (window.TotalRCANative && window.TotalRCANative.isNative()) {
+        const b64 = await Packer.toBase64String(doc);
+        const ok = await window.TotalRCANative.shareFile(fileName, b64, true);
+        if (ok) toast('Word document shared');
+      } else {
+        const blob = await Packer.toBlob(doc);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast('Word (.docx) downloaded');
+      }
+    } catch (err) {
+      toast(err.message || 'Could not generate Word document');
+    }
+  },
   'export-pptx': async (el) => {
     if (!isPro()) { openProModal('PowerPoint (.pptx) Export'); return; }
     const i = invById(el.dataset.id);
