@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/neilmross81-debug/gridguard-rca#readme",
   "dependencies": {
+    "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.6.2",
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/preferences": "^8.0.1",

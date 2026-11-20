@@ -2827,17 +2827,30 @@ function downloadTimelineTemplate() {
     const wsGuide = XLSX.utils.aoa_to_sheet(catGuide);
     wsGuide['!cols'] = [{ wch: 22 }, { wch: 58 }];
     XLSX.utils.book_append_sheet(wb, wsGuide, 'Categories');
-    XLSX.writeFile(wb, 'totalrca-timeline-template.xlsx');
-    toast('Excel template downloaded');
+    if (window.TotalRCANative && window.TotalRCANative.isNative()) {
+      const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+      window.TotalRCANative.shareFile('totalrca-timeline-template.xlsx', b64, true).then(ok => {
+        if (ok) toast('Excel template shared');
+      });
+    } else {
+      XLSX.writeFile(wb, 'totalrca-timeline-template.xlsx');
+      toast('Excel template downloaded');
+    }
   } else {
     const csv = [headers, ...sampleRows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'totalrca-timeline-template.csv';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast('CSV template downloaded');
+    if (window.TotalRCANative && window.TotalRCANative.isNative()) {
+      window.TotalRCANative.shareFile('totalrca-timeline-template.csv', csv, false).then(ok => {
+        if (ok) toast('CSV template shared');
+      });
+    } else {
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'totalrca-timeline-template.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('CSV template downloaded');
+    }
   }
 }
 
@@ -3738,10 +3751,27 @@ const ACTIONS = {
 
   'print': () => {
     if (!isPro()) { openProModal('PDF & Print Reports'); return; }
+    if (window.TotalRCANative && window.TotalRCANative.isNative()) {
+      const r = parseRoute();
+      const inv = r.page === 'rca' ? invById(r.id) : null;
+      const bodyHtml = inv ? tabReport(inv) : (document.getElementById('view')?.innerHTML || '');
+      const fname = inv ? `${(inv.document_code || 'TotalRCA-Report').replace(/[^a-z0-9._-]/gi, '_')}.html` : `TotalRCA-Dashboard-${new Date().toISOString().slice(0, 10)}.html`;
+      window.TotalRCANative.shareReportHtml(fname, inv ? inv.title : 'TotalRCA Report', bodyHtml).then(ok => {
+        if (!ok) toast('Could not open share sheet for report');
+      });
+      return;
+    }
     window.print();
   },
   'print-dashboard': () => {
     if (!isPro()) { openProModal('PDF & Print Reports'); return; }
+    if (window.TotalRCANative && window.TotalRCANative.isNative()) {
+      const bodyHtml = document.getElementById('view')?.innerHTML || '';
+      window.TotalRCANative.shareReportHtml(`TotalRCA-Dashboard-${new Date().toISOString().slice(0, 10)}.html`, 'TotalRCA Dashboard', bodyHtml).then(ok => {
+        if (!ok) toast('Could not open share sheet for dashboard');
+      });
+      return;
+    }
     window.print();
   },
 
@@ -3789,6 +3819,18 @@ const ACTIONS = {
     const wantsExternalDb = !!(cfg.supabase_url || cfg.supabase_key || cfg.webhook_url || cfg.custom_rest_url);
     if (wantsExternalDb && !isPro()) {
       openProModal('Team Database Sync');
+      return;
+    }
+    if (cfg.supabase_url && !/^https:\/\//i.test(cfg.supabase_url)) {
+      toast('Supabase URL must start with https://');
+      return;
+    }
+    if (cfg.webhook_url && !/^https:\/\/script\.google\.com\//i.test(cfg.webhook_url)) {
+      toast('Apps Script URL must start with https://script.google.com/');
+      return;
+    }
+    if (cfg.custom_rest_url && !/^https?:\/\//i.test(cfg.custom_rest_url)) {
+      toast('Custom REST URL must start with https:// or http://');
       return;
     }
     DB.app_settings = Object.assign({}, DB.app_settings, cfg);
@@ -4087,11 +4129,19 @@ window.addEventListener('totalrca:pro-changed', () => {
 
 /* ---------- boot ---------- */
 
+const hadLocalBeforeBoot = !!localStorage.getItem(STORE_KEY);
 load();
 updateProPill();
 render();
 if (window.TotalRCANative) {
-  window.TotalRCANative.initStorageMirror(STORE_KEY, () => { load(); render(); });
+  window.TotalRCANative.initStorageMirror(STORE_KEY, () => { load(); render(); }, hadLocalBeforeBoot);
   window.TotalRCANative.initPurchases().then(() => updateProPill());
+  window.TotalRCANative.initBackButton({
+    onBack: () => {
+      if (document.querySelector('#dropdownHost .gg-dropdown-menu')) { closeDropdown(); return true; }
+      if (document.querySelector('#modalHost .overlay')) { closeModal(); return true; }
+      return false;
+    },
+  });
 }
 syncFromSupabase(false);

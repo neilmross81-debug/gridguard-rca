@@ -1206,10 +1206,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .journey-steps { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 760px) {
-  .wrap { padding-left: 16px; padding-right: 16px; }
-  .nav-inner { gap: 10px; flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; }
-  .nav-links { order: 3; width: 100%; overflow-x: auto; padding-top: 4px; border-top: 1px solid var(--line); }
-  .page { padding-top: 20px; padding-bottom: 56px; }
+  .nav { padding-top: env(safe-area-inset-top, 0px); }
+  .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .nav-inner { gap: 8px; flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; }
+  .nav-links { order: 3; width: 100%; overflow-x: auto; padding-top: 4px; border-top: 1px solid var(--line); -webkit-overflow-scrolling: touch; }
+  #proBtn { padding: 0 8px; font-size: 11px; height: 26px; }
+  .page { padding-top: 20px; padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
   .page-head { flex-direction: column; align-items: flex-start; gap: 16px; }
   .stats { grid-template-columns: 1fr; }
   .rca-row, .rca-row.compact { grid-template-columns: 1fr; gap: 10px; }
@@ -1223,16 +1225,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .report-toc { padding: 20px 18px; }
   .report-kpis { grid-template-columns: repeat(2, 1fr); }
   .report-doc-ctrl, .report-signoff-grid { grid-template-columns: 1fr; }
-  .overlay { padding: 16px 12px; }
-  .modal-body { padding: 18px; max-height: calc(100dvh - 150px); }
+  .overlay { padding: calc(16px + env(safe-area-inset-top, 0px)) 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .modal-body { padding: 18px; max-height: calc(100dvh - 150px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
   .modal-head, .modal-foot { padding: 16px 18px; }
+  .toast-host { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .gg-dropdown-backdrop { background: rgba(0, 0, 0, .28); }
   .gg-dropdown-menu {
     left: 16px !important;
     right: 16px !important;
     width: auto !important;
     top: auto !important;
-    bottom: 16px !important;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
     max-height: 60dvh;
     padding: 6px;
     border-radius: var(--radius-lg);
