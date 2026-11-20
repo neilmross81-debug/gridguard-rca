@@ -2032,7 +2032,10 @@ function tabReport(i) {
   <div class="report" id="reportBody">
     <div class="section-head no-print">
       <div><h2 class="h3" style="margin:0;border:0;padding:0">Engineering RCA report</h2><p>Includes cover page, visual diagrams, table of contents, and sign-off block</p></div>
-      <button class="btn btn-primary btn-sm" data-action="print">${icon('print')} Print / Save PDF</button>
+      <div class="chip-row">
+        <button class="btn btn-sm" data-action="export-pptx" data-id="${i.id}">${icon('download')} Export PowerPoint (.pptx)</button>
+        <button class="btn btn-primary btn-sm" data-action="print">${icon('print')} Print / Save PDF</button>
+      </div>
     </div>
 
     <div class="report-cover">
@@ -3839,6 +3842,182 @@ const ACTIONS = {
     });
   },
 
+  'export-pptx': async (el) => {
+    if (!isPro()) { openProModal('PowerPoint (.pptx) Export'); return; }
+    const i = invById(el.dataset.id);
+    if (!i) return;
+    if (typeof window.PptxGenJS !== 'function') {
+      toast('PowerPoint generator is still loading — try again in a moment');
+      return;
+    }
+    toast('Building PowerPoint deck…');
+    try {
+      const pptx = new window.PptxGenJS();
+      pptx.layout = 'LAYOUT_16x9';
+      pptx.author = i.investigator_name || 'TotalRCA';
+      pptx.title = `${i.document_code || 'RCA'} — ${i.title}`;
+
+      const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const ish = byInv('ishikawa_causes', i.id);
+      const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
+      const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
+      const maxRpn = fmea.length ? Math.max(...fmea.map(rpnOf)) : 0;
+
+      const addHeader = (slide, title, sub) => {
+        slide.background = { color: 'F8FAFC' };
+        slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.72, fill: { color: '0F172A' } });
+        slide.addText(title, { x: 0.5, y: 0.12, w: 9.5, h: 0.45, fontSize: 18, bold: true, color: 'FFFFFF', fontFace: 'Calibri' });
+        slide.addText(sub || (i.document_code || 'TotalRCA'), { x: 10.0, y: 0.16, w: 2.8, h: 0.36, fontSize: 11, align: 'right', color: '93C5FD', fontFace: 'Calibri' });
+      };
+
+      // Slide 1: Cover
+      const s1 = pptx.addSlide();
+      s1.background = { color: '0F172A' };
+      s1.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 0.28, h: 7.5, fill: { color: '0078D4' } });
+      s1.addText('TOTALRCA  ·  ENGINEERING ROOT CAUSE REPORT', { x: 0.8, y: 0.9, w: 11.5, h: 0.4, fontSize: 12, bold: true, color: '60A5FA', charSpacing: 2 });
+      s1.addText(i.title || 'Root Cause Analysis', { x: 0.8, y: 1.6, w: 11.5, h: 1.6, fontSize: 32, bold: true, color: 'FFFFFF', valign: 'top' });
+      s1.addText(`${i.facility_name || '—'}  |  ${i.equipment_tag || '—'}  |  ${ASSET[i.asset_category] || '—'}`, { x: 0.8, y: 3.4, w: 11.5, h: 0.45, fontSize: 15, color: 'CBD5E1' });
+      const metaRows = [
+        ['Document ID', i.document_code || '—', 'Severity / Status', `${(SEVERITY[i.severity] || {}).label || i.severity} · ${(STATUS[i.status] || {}).label || i.status}`],
+        ['Incident Date', fmtDateTime(i.incident_date), 'Investigator', `${i.investigator_name || '—'}${i.investigator_role ? ' (' + i.investigator_role + ')' : ''}`],
+      ];
+      s1.addTable(metaRows.map(r => r.map((c, idx) => ({ text: String(c), options: { fontSize: 12, bold: idx % 2 === 0, color: idx % 2 === 0 ? '93C5FD' : 'FFFFFF', fill: { color: '1E293B' }, border: { color: '334155', pt: 0.5 } } }))), {
+        x: 0.8, y: 4.5, w: 11.5, rowH: 0.52, colW: [1.8, 3.9, 2.0, 3.8],
+      });
+
+      // Slide 2: Executive Summary & KPIs
+      const s2 = pptx.addSlide();
+      addHeader(s2, 'Executive Summary & Key Metrics', i.document_code);
+      const kpis = [
+        [String(events.length), 'Timeline Events'],
+        [String(whys.length), '5 Whys Levels'],
+        [String(ish.length), '6M Causes'],
+        [String(maxRpn || '—'), 'Max FMEA RPN'],
+        [String(capas.length), 'CAPA Actions'],
+      ];
+      kpis.forEach(([val, lbl], idx) => {
+        const kx = 0.5 + idx * 2.52;
+        s2.addShape(pptx.ShapeType.roundRect, { x: kx, y: 1.0, w: 2.32, h: 1.1, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', pt: 1 } });
+        s2.addText(val, { x: kx, y: 1.08, w: 2.32, h: 0.55, align: 'center', fontSize: 24, bold: true, color: '0078D4' });
+        s2.addText(lbl, { x: kx, y: 1.66, w: 2.32, h: 0.32, align: 'center', fontSize: 10.5, color: '64748B' });
+      });
+      s2.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: 2.35, w: 12.3, h: 1.9, fill: { color: 'FFFBEB' }, line: { color: 'F59E0B', pt: 1 } });
+      s2.addText('Problem Statement', { x: 0.7, y: 2.45, w: 11.9, h: 0.35, fontSize: 13, bold: true, color: '92400E' });
+      s2.addText(i.problem_statement || 'No problem statement recorded.', { x: 0.7, y: 2.85, w: 11.9, h: 1.3, fontSize: 12.5, color: '1E293B', valign: 'top' });
+      s2.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: 4.45, w: 12.3, h: 2.5, fill: { color: 'FFFFFF' }, line: { color: 'CBD5E1', pt: 1 } });
+      s2.addText('Executive Summary', { x: 0.7, y: 4.55, w: 11.9, h: 0.35, fontSize: 13, bold: true, color: '0F172A' });
+      s2.addText(i.executive_summary || 'No executive summary recorded.', { x: 0.7, y: 4.95, w: 11.9, h: 1.9, fontSize: 12.5, color: '334155', valign: 'top' });
+
+      // Slide 3: Timeline
+      const s3 = pptx.addSlide();
+      addHeader(s3, 'Incident Sequence of Events (Timeline)', i.document_code);
+      const tlHeader = ['Timestamp (UTC)', 'Category', 'Event', 'Source'].map(t => ({ text: t, options: { bold: true, fontSize: 11, color: 'FFFFFF', fill: { color: '0F172A' } } }));
+      const tlRows = events.slice(0, 9).map(ev => [
+        { text: fmtDateTimeSec(ev.timestamp), options: { fontSize: 10, color: '334155' } },
+        { text: (TIMELINE_CAT[ev.category] || {}).label || ev.category, options: { fontSize: 10, bold: true, color: '0078D4' } },
+        { text: `${ev.title}${ev.detail ? '\n' + ev.detail : ''}`, options: { fontSize: 10, color: '1E293B' } },
+        { text: ev.source || '—', options: { fontSize: 10, color: '64748B' } },
+      ]);
+      s3.addTable([tlHeader, ...(tlRows.length ? tlRows : [[{ text: 'No timeline events recorded.', options: { colspan: 4, fontSize: 11, color: '64748B' } }]])], {
+        x: 0.5, y: 1.0, w: 12.3, colW: [2.4, 1.8, 6.1, 2.0], border: { color: 'E2E8F0', pt: 0.5 }, fill: { color: 'FFFFFF' },
+      });
+
+      // Slide 4: 5 Whys Causal Chain
+      const s4 = pptx.addSlide();
+      addHeader(s4, '5 Whys Interrogative Causal Chain', i.document_code);
+      if (whys.length) {
+        whys.slice(0, 6).forEach((n, idx) => {
+          const y = 0.98 + idx * 1.02;
+          const isRoot = !!n.is_root_cause;
+          s4.addShape(pptx.ShapeType.roundRect, { x: 0.5, y, w: 12.3, h: 0.88, fill: { color: isRoot ? 'DCFCE7' : 'FFFFFF' }, line: { color: isRoot ? '16A34A' : '0078D4', pt: isRoot ? 1.8 : 1 } });
+          s4.addShape(pptx.ShapeType.roundRect, { x: 0.65, y: y + 0.16, w: 0.85, h: 0.54, fill: { color: isRoot ? '16A34A' : '0078D4' } });
+          s4.addText(`L${n.level}`, { x: 0.65, y: y + 0.16, w: 0.85, h: 0.54, align: 'center', valign: 'middle', bold: true, fontSize: 13, color: 'FFFFFF' });
+          s4.addText(`${n.question}${isRoot ? '  [ROOT CAUSE]' : ''}`, { x: 1.65, y: y + 0.06, w: 11.0, h: 0.34, bold: true, fontSize: 11.5, color: '0F172A' });
+          s4.addText(`${n.answer || '—'}${n.evidence ? '  (Evidence: ' + n.evidence + ')' : ''}`, { x: 1.65, y: y + 0.4, w: 11.0, h: 0.42, fontSize: 10.5, color: '334155' });
+        });
+      } else {
+        s4.addText('No 5 Whys nodes recorded.', { x: 0.5, y: 1.2, w: 12.3, h: 0.5, fontSize: 13, color: '64748B' });
+      }
+
+      // Slide 5: Ishikawa 6M
+      const s5 = pptx.addSlide();
+      addHeader(s5, 'Ishikawa (6M) Fishbone Breakdown', i.document_code);
+      Object.keys(VECTOR).forEach((vk, idx) => {
+        const col = idx % 3, row = Math.floor(idx / 3);
+        const bx = 0.5 + col * 4.18, by = 1.0 + row * 3.08;
+        const items = ish.filter(c => c.vector === vk);
+        s5.addShape(pptx.ShapeType.roundRect, { x: bx, y: by, w: 3.98, h: 2.86, fill: { color: 'FFFFFF' }, line: { color: 'CBD5E1', pt: 1 } });
+        s5.addShape(pptx.ShapeType.rect, { x: bx, y: by, w: 3.98, h: 0.42, fill: { color: '0078D4' } });
+        s5.addText(VECTOR[vk], { x: bx + 0.12, y: by + 0.04, w: 3.74, h: 0.34, fontSize: 11.5, bold: true, color: 'FFFFFF' });
+        const bodyTxt = items.length
+          ? items.slice(0, 5).map(c => `• ${c.is_primary ? '[PRIMARY] ' : ''}${c.cause}`).join('\n')
+          : 'No causes recorded';
+        s5.addText(bodyTxt, { x: bx + 0.14, y: by + 0.5, w: 3.7, h: 2.25, fontSize: 10.5, color: items.length ? '1E293B' : '94A3B8', valign: 'top' });
+      });
+
+      // Slide 6: FMEA Risk Chart + Table
+      const s6 = pptx.addSlide();
+      addHeader(s6, 'FMEA Risk Priority Analysis', i.document_code);
+      if (fmea.length) {
+        const chartItems = fmea.slice(0, 6);
+        s6.addChart(pptx.ChartType.bar, [{
+          name: 'RPN (S × O × D)',
+          labels: chartItems.map(f => String(f.component || 'Item').slice(0, 22)),
+          values: chartItems.map(rpnOf),
+        }], {
+          x: 0.5, y: 1.0, w: 5.8, h: 5.8,
+          barDir: 'bar', chartColors: ['0078D4'], showValue: true, showLegend: false,
+          catAxisLabelFontSize: 10, valAxisLabelFontSize: 10,
+        });
+        const fHeader = ['Component', 'Failure Mode', 'S', 'O', 'D', 'RPN'].map(t => ({ text: t, options: { bold: true, fontSize: 10, color: 'FFFFFF', fill: { color: '0F172A' } } }));
+        const fRows = fmea.slice(0, 8).map(f => [
+          { text: f.component || '—', options: { fontSize: 9.5, bold: true } },
+          { text: f.failure_mode || '—', options: { fontSize: 9.5 } },
+          { text: String(f.severity), options: { fontSize: 9.5, align: 'center' } },
+          { text: String(f.occurrence), options: { fontSize: 9.5, align: 'center' } },
+          { text: String(f.detection), options: { fontSize: 9.5, align: 'center' } },
+          { text: String(rpnOf(f)), options: { fontSize: 9.5, bold: true, align: 'center', color: rpnOf(f) >= 100 ? 'D13438' : '0F172A' } },
+        ]);
+        s6.addTable([fHeader, ...fRows], {
+          x: 6.5, y: 1.0, w: 6.3, colW: [1.9, 2.3, 0.45, 0.45, 0.45, 0.75], border: { color: 'E2E8F0', pt: 0.5 }, fill: { color: 'FFFFFF' },
+        });
+      } else {
+        s6.addText('No FMEA items assessed.', { x: 0.5, y: 1.2, w: 12.3, h: 0.5, fontSize: 13, color: '64748B' });
+      }
+
+      // Slide 7: Root Cause & CAPA Plan
+      const s7 = pptx.addSlide();
+      addHeader(s7, 'Verified Root Cause & CAPA Action Plan', i.document_code);
+      s7.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: 0.95, w: 12.3, h: 1.25, fill: { color: 'DCFCE7' }, line: { color: '16A34A', pt: 1.2 } });
+      s7.addText('Verified Root Cause Conclusion', { x: 0.7, y: 1.02, w: 11.9, h: 0.3, fontSize: 12, bold: true, color: '166534' });
+      s7.addText(i.root_cause_conclusion || 'Not yet concluded.', { x: 0.7, y: 1.34, w: 11.9, h: 0.78, fontSize: 11.5, color: '14532D', valign: 'top' });
+
+      const cHeader = ['Type', 'Action Description', 'Owner', 'Due Date', 'Status'].map(t => ({ text: t, options: { bold: true, fontSize: 10.5, color: 'FFFFFF', fill: { color: '0F172A' } } }));
+      const cRows = capas.slice(0, 8).map(c => [
+        { text: CAPA_TYPE[c.type] || c.type, options: { fontSize: 10, bold: true } },
+        { text: c.description || '—', options: { fontSize: 10 } },
+        { text: c.owner || '—', options: { fontSize: 10 } },
+        { text: fmtDate(c.target_date), options: { fontSize: 10 } },
+        { text: (CAPA_STATUS[c.status] || {}).label || c.status, options: { fontSize: 10, bold: true } },
+      ]);
+      s7.addTable([cHeader, ...(cRows.length ? cRows : [[{ text: 'No CAPA actions raised.', options: { colspan: 5, fontSize: 11, color: '64748B' } }]])], {
+        x: 0.5, y: 2.4, w: 12.3, colW: [1.4, 5.7, 2.2, 1.5, 1.5], border: { color: 'E2E8F0', pt: 0.5 }, fill: { color: 'FFFFFF' },
+      });
+
+      const fileName = `${(i.document_code || 'TotalRCA-Report').replace(/[^a-z0-9._-]/gi, '_')}.pptx`;
+      if (window.TotalRCANative && window.TotalRCANative.isNative()) {
+        const b64 = await pptx.write({ outputType: 'base64' });
+        const ok = await window.TotalRCANative.shareFile(fileName, b64, true);
+        if (ok) toast('PowerPoint deck shared');
+      } else {
+        await pptx.writeFile({ fileName });
+        toast('PowerPoint (.pptx) downloaded');
+      }
+    } catch (err) {
+      toast(err.message || 'Could not generate PowerPoint');
+    }
+  },
   'print': () => {
     if (!isPro()) { openProModal('PDF & Print Reports'); return; }
     if (window.TotalRCANative && window.TotalRCANative.isNative()) {

@@ -1255,16 +1255,18 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 /* ---------- print ---------- */
 
 @media print {
-  @page { size: A4; margin: 14mm 14mm 16mm; }
-  body { background: #fff; color: #111; }
-  .nav, .page-actions, .tabs, .toast-host, .no-print, .journey, .coach-banner, .ish-drawer, .breadcrumb, .rca-head { display: none !important; }
+  @page { size: A4; margin: 12mm 12mm 14mm; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body { background: #fff !important; color: #111; font-size: 13px; }
+  .nav, .page-actions, .tabs, .toast-host, .no-print, .journey, .coach-banner, .ish-drawer, .breadcrumb, .rca-head, #modalHost, #dropdownHost { display: none !important; }
   .wrap, .page { max-width: none; padding: 0; margin: 0; }
-  .card, .why, .ish, .tl-card, .report-cover, .report-toc, .report-why, .report-signoff { border-color: #ccc; box-shadow: none; background: #fff; }
+  .card, .why, .ish, .tl-card, .report-cover, .report-toc, .report-why, .report-signoff { border-color: #d1d5db; box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
   .report { max-width: none; }
-  .report-cover { break-after: page; page-break-after: always; min-height: 245mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .report-cover { break-after: page; page-break-after: always; min-height: 220mm; padding: 22px; display: flex; flex-direction: column; justify-content: space-between; }
   .report-toc { break-after: page; page-break-after: always; }
-  .report h2 { color: #111; border-color: #999; break-after: avoid; page-break-after: avoid; }
-  .report-why, .report-callout, .report-signoff, .tl-item, tr { break-inside: avoid; page-break-inside: avoid; }
+  .report h2 { color: #0f172a; border-color: #cbd5e1; break-after: avoid; page-break-after: avoid; margin-top: 20px; }
+  .report-why, .report-callout, .report-signoff, .tl-item, tr, svg { break-inside: avoid; page-break-inside: avoid; }
+  svg { max-width: 100% !important; height: auto !important; }
   .tl-dot { box-shadow: 0 0 0 3px #fff; }
-  .report p, .muted, .dim { color: #333 !important; }
+  .report p, .muted, .dim { color: #374151 !important; }
 }
