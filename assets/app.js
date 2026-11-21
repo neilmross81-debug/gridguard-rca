@@ -59,7 +59,44 @@ const ASSET = {
   other:                'Other Asset / System',
 };
 
-const INDUSTRY_TEMPLATES = {
+const INDUSTRY_TEMPLATES = IS_RWE_WEB ? {
+  none: { label: 'Blank RCA (Custom)', asset_category: 'other', fault_category: 'mechanical', voltage_class: '', problem_statement: '' },
+  windTurbine: {
+    label: 'Offshore / Onshore Wind Turbine',
+    asset_category: 'windTurbine',
+    fault_category: 'mechanical',
+    voltage_class: '66 kV Array / WTG',
+    problem_statement: 'Wind turbine generator (WTG) tripped offline due to pitch, yaw, gearbox, or converter fault, resulting in unplanned generation curtailment.',
+  },
+  hvSubstation: {
+    label: 'HV Substation / GIS / Export Cable',
+    asset_category: 'substationOsp',
+    fault_category: 'electrical',
+    voltage_class: '220 kV / 400 kV IEC 61850',
+    problem_statement: 'HV protection relay operated or GIS/export cable fault occurred, isolating the bay and curtailing export capacity.',
+  },
+  solarBess: {
+    label: 'Solar PV & Battery Energy Storage (BESS)',
+    asset_category: 'windTurbine',
+    fault_category: 'control',
+    voltage_class: '1500 V DC / 33 kV AC',
+    problem_statement: 'Inverter or BESS container tripped on BMS/thermal/grid-code protection, reducing site availability.',
+  },
+  ccgtThermal: {
+    label: 'CCGT / Thermal Generation Plant',
+    asset_category: 'transformerPower',
+    fault_category: 'process',
+    voltage_class: '11 kV / 400 kV Generation',
+    problem_statement: 'Gas/steam turbine or HRSG auxiliary system tripped or derated during operation, impacting dispatchable output.',
+  },
+  hseLoto: {
+    label: 'HSE / Safety Near-Miss & LOTO',
+    asset_category: 'other',
+    fault_category: 'human',
+    voltage_class: 'Permit-to-Work / Isolation',
+    problem_statement: 'Safety near-miss, LOTO isolation deviation, or procedural gap identified during operational or maintenance works.',
+  },
+} : {
   none: { label: 'Blank RCA (Custom)', asset_category: 'other', fault_category: 'mechanical', voltage_class: '', problem_statement: '' },
   mechanical: {
     label: 'General Mechanical (Pump / Motor / Bearing)',
@@ -217,6 +254,69 @@ function ensureVendor(globalName, src) {
     document.head.appendChild(s);
   });
   return _vendorLoads[src];
+}
+
+function isGenImpactEnabled() {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  return s.gen_impact_enabled !== undefined ? Boolean(s.gen_impact_enabled) : IS_RWE_WEB;
+}
+
+function getGenCurrency() {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  return (s.gen_currency || '£').trim() || '£';
+}
+
+function getGenSiteFormula(siteId) {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  const map = (s.gen_formulas && typeof s.gen_formulas === 'object') ? s.gen_formulas : {};
+  const f = map[siteId] || {};
+  return {
+    capacity_mw: f.capacity_mw !== undefined && f.capacity_mw !== '' ? Number(f.capacity_mw) : 100,
+    factor_pct: f.factor_pct !== undefined && f.factor_pct !== '' ? Number(f.factor_pct) : 100,
+    tariff: f.tariff !== undefined && f.tariff !== '' ? Number(f.tariff) : 75,
+  };
+}
+
+function getGenInvData(invId) {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  const map = (s.gen_impacts && typeof s.gen_impacts === 'object') ? s.gen_impacts : {};
+  return map[invId] || {};
+}
+
+function calcGenImpact(inv) {
+  if (!inv) return { hours: 0, mwh: 0, cost: 0, currency: getGenCurrency(), isOverrideMwh: false, isOverrideCost: false };
+  const f = getGenSiteFormula(inv.site_id);
+  const g = getGenInvData(inv.id);
+  const rawHours = g.outage_hours !== undefined ? g.outage_hours : inv.outage_hours;
+  const rawMwh = g.lost_mwh !== undefined ? g.lost_mwh : inv.lost_mwh;
+  const rawCost = g.impact_cost !== undefined ? g.impact_cost : inv.impact_cost;
+  const hours = Number(rawHours || 0);
+  const hasMwh = rawMwh !== undefined && rawMwh !== null && rawMwh !== '';
+  const hasCost = rawCost !== undefined && rawCost !== null && rawCost !== '';
+  const mwh = hasMwh ? Number(rawMwh) : +(hours * (f.capacity_mw * (f.factor_pct / 100))).toFixed(2);
+  const cost = hasCost ? Number(rawCost) : +(mwh * f.tariff).toFixed(0);
+  return { hours, mwh, cost, currency: getGenCurrency(), isOverrideMwh: hasMwh, isOverrideCost: hasCost, formula: f };
+}
+
+function getAuditLogs(invId) {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  const map = (s.audit_logs && typeof s.audit_logs === 'object') ? s.audit_logs : {};
+  return Array.isArray(map[invId]) ? map[invId] : [];
+}
+
+function recordAudit(invId, action, detail = '') {
+  if (!invId || typeof DB === 'undefined' || !DB) return;
+  if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
+  if (!DB.app_settings.audit_logs || typeof DB.app_settings.audit_logs !== 'object') DB.app_settings.audit_logs = {};
+  const list = Array.isArray(DB.app_settings.audit_logs[invId]) ? DB.app_settings.audit_logs[invId] : [];
+  const u = typeof currentUser === 'function' ? currentUser() : null;
+  list.unshift({
+    at: new Date().toISOString(),
+    user: (u && (u.full_name || u.username)) || 'System',
+    action,
+    detail,
+  });
+  DB.app_settings.audit_logs[invId] = list.slice(0, 40);
 }
 
 /* ---------- store ---------- */
@@ -733,7 +833,17 @@ function pushWebhook() {
       try {
         const headers = { 'Content-Type': 'application/json' };
         if (customRestToken) headers.Authorization = `Bearer ${customRestToken}`;
-        await fetch(customRestUrl, { method: 'POST', headers, body: payload });
+        const body = s.custom_rest_format === 'teams'
+          ? JSON.stringify({
+              '@type': 'MessageCard',
+              '@context': 'http://schema.org/extensions',
+              themeColor: '1D4276',
+              summary: `${APP_NAME} Sync Update`,
+              title: `${APP_NAME} — Operations Sync`,
+              text: `${(DB.investigations || []).length} investigation(s) · ${(DB.capa_actions || []).filter(c => ['open', 'inProgress'].includes(c.status)).length} open CAPA(s) · Synced ${new Date().toUTCString()}`,
+            })
+          : payload;
+        await fetch(customRestUrl, { method: 'POST', headers, body });
       } catch (e) {}
     }
   }, 1200);
@@ -1268,8 +1378,22 @@ function viewDashboard() {
   const capas = filteredCapas();
   const fmeas = (DB.fmea_items || []).filter(f => invIds.has(f.investigation_id));
   const openCapas = capas.filter(c => c.status === 'open' || c.status === 'inProgress');
+  const nowMs = Date.now();
+  const overdueCapas = openCapas.filter(c => c.target_date && new Date(c.target_date).getTime() < nowMs);
+  const dueSoonCapas = openCapas.filter(c => {
+    if (!c.target_date) return false;
+    const t = new Date(c.target_date).getTime();
+    return t >= nowMs && t <= nowMs + 7 * 86400000;
+  });
   const highRpn = fmeas.filter(f => rpnOf(f) >= 100);
   const critical = invs.filter(i => i.severity === 'critical' || i.severity === 'catastrophic');
+  const genEnabled = isGenImpactEnabled();
+  const totalGen = genEnabled ? invs.reduce((acc, inv) => {
+    const g = calcGenImpact(inv);
+    acc.mwh += g.mwh;
+    acc.cost += g.cost;
+    return acc;
+  }, { mwh: 0, cost: 0 }) : { mwh: 0, cost: 0 };
 
   const stat = (tone, ic, value, label, foot) => `
     <div class="stat tone-${tone}">
@@ -1319,12 +1443,24 @@ function viewDashboard() {
     </div>
   </div>
   ${pendingBanner}
+  ${(overdueCapas.length || dueSoonCapas.length) ? `
+  <div class="coach-banner" style="margin-bottom:18px;border-color:${overdueCapas.length ? '#F1B0B7' : '#F4C790'};background:${overdueCapas.length ? 'var(--red-soft)' : 'var(--amber-soft)'}">
+    <div class="coach-text">
+      <strong>CAPA Schedule Alert:</strong>
+      ${overdueCapas.length ? `<span style="color:var(--red);font-weight:600">${overdueCapas.length} overdue</span>` : ''}
+      ${overdueCapas.length && dueSoonCapas.length ? ' · ' : ''}
+      ${dueSoonCapas.length ? `<span>${dueSoonCapas.length} due within 7 days</span>` : ''}
+    </div>
+    <button class="btn btn-sm" data-route="#/capas">Review CAPAs</button>
+  </div>` : ''}
 
   <div class="stats">
     ${stat('cyan',  'clipboard', invs.length, 'Accessible RCAs', `${invs.filter(i => i.status === 'inReview').length} awaiting review`)}
     ${stat('red',   'alert',     critical.length, 'Active Critical', `${critical.filter(i => i.status !== 'closed').length} still open`)}
-    ${stat('amber', 'clock',     openCapas.length, 'Open CAPAs', `${capas.length} actions tracked`)}
-    ${stat('slate', 'chart',     highRpn.length, 'High RPN (≥100)', `Assessed across ${fmeas.length} failure modes`)}
+    ${stat('amber', 'clock',     openCapas.length, 'Open CAPAs', `${overdueCapas.length} overdue · ${capas.length} total`)}
+    ${genEnabled
+      ? stat('slate', 'chart', `${totalGen.mwh.toLocaleString(undefined, { maximumFractionDigits: 1 })} MWh`, 'Lost Generation', `Est. ${getGenCurrency()}${Math.round(totalGen.cost).toLocaleString()} curtailment`)
+      : stat('slate', 'chart', highRpn.length, 'High RPN (≥100)', `Assessed across ${fmeas.length} failure modes`)}
   </div>
 
   <div class="grid-2">
@@ -1578,6 +1714,7 @@ function viewRca(id, tab) {
     </div>
     <div class="page-actions">
       ${editable ? `<button class="btn" data-action="edit-rca" data-id="${i.id}">${icon('edit')} Edit</button>` : ''}
+      <button class="btn" data-action="copy-teams-brief" data-id="${i.id}" title="Copy summary for Microsoft Teams or Email">Teams Brief</button>
       <button class="btn" data-action="print">${icon('print')} Report</button>
       ${editable ? `<button class="icon-btn" data-action="del-rca" data-id="${i.id}" title="Delete investigation" aria-label="Delete investigation">${icon('trash')}</button>` : ''}
     </div>
@@ -1726,6 +1863,12 @@ function tabOverview(i) {
           <dt>Incident date</dt><dd>${fmtDateTime(i.incident_date)}</dd>
           <dt>Investigator</dt><dd>${esc(i.investigator_name || '—')}${i.investigator_role ? `<div class="dim" style="font-size:12.5px">${esc(i.investigator_role)}</div>` : ''}</dd>
           <dt>Last updated</dt><dd>${fmtDateTime(i.updated_at)}</dd>
+          ${isGenImpactEnabled() ? (() => {
+            const g = calcGenImpact(i);
+            return `<dt>Outage duration</dt><dd>${g.hours ? `${g.hours} hrs` : '—'}</dd>
+                    <dt>Lost generation</dt><dd><strong>${g.mwh.toLocaleString(undefined, { maximumFractionDigits: 2 })} MWh</strong>${g.isOverrideMwh ? ' <span class="dim">(manual)</span>' : ''}</dd>
+                    <dt>Estimated impact</dt><dd>${esc(g.currency)}${Math.round(g.cost).toLocaleString()}${g.isOverrideCost ? ' <span class="dim">(manual)</span>' : ''}</dd>`;
+          })() : ''}
         </dl>
         <div class="divider"></div>
         <div class="chip-row">
@@ -1736,6 +1879,18 @@ function tabOverview(i) {
           ${chip(byInv('capa_actions', i.id).length + ' actions', 'slate')}
           ${chip(byInv('attachments', i.id).length + ' attachments', 'slate')}
         </div>
+        ${(() => {
+          const logs = getAuditLogs(i.id);
+          if (!logs.length) return '';
+          return `<div class="divider"></div>
+            <div class="eyebrow" style="margin-bottom:8px">Audit &amp; Revision History</div>
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto">
+              ${logs.slice(0, 10).map(l => `<div style="font-size:12.5px;display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding-bottom:4px">
+                <span><strong>${esc(l.action)}</strong>${l.detail ? ` — <span class="muted">${esc(l.detail)}</span>` : ''} <span class="dim">by ${esc(l.user)}</span></span>
+                <span class="dim mono" style="white-space:nowrap">${fmtDateTime(l.at)}</span>
+              </div>`).join('')}
+            </div>`;
+        })()}
       </div>
     </section>
   </div>`;
@@ -1949,10 +2104,11 @@ function tabCapa(i) {
       <td class="muted">${esc(c.owner || '—')}</td>
       <td class="muted">${fmtDate(c.target_date)}</td>
       <td>${overdue ? chip('Overdue', 'red') : capaChip(c.status)}</td>
-      <td class="no-print">${editable ? `<div class="chip-row">
-        <button class="btn btn-ghost btn-sm" data-action="edit-capa" data-capa="${c.id}">${icon('edit')}</button>
-        <button class="btn btn-ghost btn-sm" data-action="del-capa" data-capa="${c.id}">${icon('trash')}</button>
-      </div>` : ''}</td>
+      <td class="no-print"><div class="chip-row">
+        ${c.target_date ? `<button class="btn btn-ghost btn-sm" data-action="export-capa-ics" data-capa="${c.id}" title="Add due date to Outlook Calendar (.ics)">${icon('clock')}</button>` : ''}
+        ${editable ? `<button class="btn btn-ghost btn-sm" data-action="edit-capa" data-capa="${c.id}">${icon('edit')}</button>
+        <button class="btn btn-ghost btn-sm" data-action="del-capa" data-capa="${c.id}">${icon('trash')}</button>` : ''}
+      </div></td>
     </tr>`;
   }).join('') || `<tr><td colspan="6"><div class="empty"><strong>No actions raised</strong>Add corrective and preventive actions with owners and target dates.</div></td></tr>`;
 
@@ -2649,6 +2805,15 @@ function rcaForm(i) {
         ${field('Investigator name', `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="e.g. Alex Morgan">`)}
         ${field('Investigator role', `<input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="e.g. Reliability Engineer">`)}
       </div>
+      ${isGenImpactEnabled() ? (() => {
+        const g = i ? getGenInvData(i.id) : {};
+        const f = getGenSiteFormula(d.site_id || defaultSiteId);
+        return `<div class="form-grid" style="background:var(--bg-alt);padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--line);margin-bottom:12px">
+          ${field('Outage duration (hrs)', `<input class="input" type="number" step="0.1" min="0" name="outage_hours" value="${esc(g.outage_hours ?? '')}" placeholder="e.g. 4.5">`, `Site formula: ${f.capacity_mw} MW × ${f.factor_pct}% × ${getGenCurrency()}${f.tariff}/MWh`)}
+          ${field('Lost generation (MWh override)', `<input class="input" type="number" step="0.01" min="0" name="lost_mwh" value="${esc(g.lost_mwh ?? '')}" placeholder="Auto-calculated if blank">`)}
+          ${field(`Impact value (${getGenCurrency()} override)`, `<input class="input" type="number" step="1" min="0" name="impact_cost" value="${esc(g.impact_cost ?? '')}" placeholder="Auto-calculated if blank">`)}
+        </div>`;
+      })() : ''}
       <div class="form-grid">
         <div class="field col-span-2">
           <label>Problem statement</label>
@@ -3317,6 +3482,41 @@ function settingsModal() {
           ${field('Custom REST / Webhook URL (optional)', `<input class="input" name="custom_rest_url" value="${esc(s.custom_rest_url || '')}" placeholder="https://api.yourcompany.com/rca-sync">`)}
           ${field('Bearer Token (optional)', `<input class="input mono" type="password" name="custom_rest_token" value="${esc(s.custom_rest_token || '')}" placeholder="Optional Authorization header">`)}
         </div>
+        ${field('Webhook Payload Format', select('custom_rest_format', [['json', 'Standard JSON Sync'], ['teams', 'Microsoft Teams / Power Automate Card']], s.custom_rest_format || 'json'))}
+      </section>
+      <div class="divider"></div>
+      <section style="margin-bottom:8px">
+        <div class="section-head" style="margin-bottom:8px">
+          <div>
+            <h3 class="h3" style="margin-bottom:4px">Generation Impact &amp; Curtailment Formulas</h3>
+            <p class="muted" style="font-size:13px;margin:0">Configure per-site MW capacity, curtailment factor, and tariff for automatic MWh &amp; financial impact calculations — or toggle off completely.</p>
+          </div>
+          ${isGenImpactEnabled() ? chip('Enabled', 'green') : chip('Disabled', 'slate')}
+        </div>
+        <div class="form-grid" style="margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer">
+            <input type="checkbox" name="gen_impact_enabled" ${isGenImpactEnabled() ? 'checked' : ''}>
+            <span>Enable Generation Impact Tracking</span>
+          </label>
+          ${field('Currency Symbol', `<input class="input mono" name="gen_currency" value="${esc(getGenCurrency())}" placeholder="£ or €" style="max-width:110px">`)}
+        </div>
+        ${sites.length ? `
+          <div class="card table-scroll" style="margin:0">
+            <table class="table">
+              <thead><tr><th>Operational Site</th><th>Capacity (MW)</th><th>Factor (%)</th><th>Tariff (${esc(getGenCurrency())}/MWh)</th></tr></thead>
+              <tbody>
+                ${sites.map(site => {
+                  const f = getGenSiteFormula(site.id);
+                  return `<tr>
+                    <td><span class="chip chip-slate mono">${esc(site.code)}</span> <span class="muted" style="font-size:12.5px">${esc(site.name)}</span></td>
+                    <td><input class="input mono" type="number" step="0.1" min="0" name="gen_cap_${site.id}" value="${esc(f.capacity_mw)}" style="width:95px"></td>
+                    <td><input class="input mono" type="number" step="1" min="0" max="100" name="gen_fac_${site.id}" value="${esc(f.factor_pct)}" style="width:85px"></td>
+                    <td><input class="input mono" type="number" step="0.5" min="0" name="gen_tar_${site.id}" value="${esc(f.tariff)}" style="width:95px"></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>` : ''}
       </section>
       <div class="divider"></div>
       <section style="margin-bottom:8px">
@@ -3766,14 +3966,30 @@ const ACTIONS = {
       if (s) v.facility_name = s.name;
     }
     v.incident_date = fromDateInput(document.querySelector('[name="incident_date"]').value);
+    const saveGen = (targetId) => {
+      if (!isGenImpactEnabled()) return;
+      const gVals = collect(['outage_hours', 'lost_mwh', 'impact_cost']);
+      if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
+      if (!DB.app_settings.gen_impacts || typeof DB.app_settings.gen_impacts !== 'object') DB.app_settings.gen_impacts = {};
+      DB.app_settings.gen_impacts[targetId] = {
+        outage_hours: gVals.outage_hours || '',
+        lost_mwh: gVals.lost_mwh || '',
+        impact_cost: gVals.impact_cost || '',
+      };
+    };
     if (id) {
       const i = invById(id);
+      const oldStatus = i.status;
       Object.assign(i, v, { updated_at: new Date().toISOString() });
+      saveGen(id);
+      recordAudit(id, 'Updated RCA', oldStatus !== v.status ? `Status: ${oldStatus} → ${v.status}` : 'Details updated');
       save(); sbUpsert('investigations', i); closeModal(); render(); toast('Investigation updated');
     } else {
       const nid = uid('rca');
       const rec = Object.assign({ id: nid, drive_share_url: null }, v, { updated_at: new Date().toISOString() });
       DB.investigations.push(rec);
+      saveGen(nid);
+      recordAudit(nid, 'Created RCA', v.document_code || v.title);
       save(); sbUpsert('investigations', rec); closeModal(); go(`#/investigations/${nid}/overview`); toast('Investigation created');
     }
   },
@@ -3969,6 +4185,54 @@ const ACTIONS = {
     });
   },
 
+  'copy-teams-brief': async (el) => {
+    const i = invById(el.dataset.id);
+    if (!i) return;
+    const site = siteById(i.site_id);
+    const capas = byInv('capa_actions', i.id).filter(c => ['open', 'inProgress'].includes(c.status));
+    const lines = [
+      `**[${APP_NAME}] ${i.document_code || ''} — ${i.title}**`,
+      `Site: ${site ? `${site.code} (${site.name})` : i.facility_name || '—'} · Severity: ${(SEVERITY[i.severity]?.label) || i.severity} · Status: ${(STATUS[i.status]?.label) || i.status}`,
+      i.problem_statement ? `\n**Problem Statement:** ${i.problem_statement}` : '',
+      i.root_cause_conclusion ? `\n**Root Cause:** ${i.root_cause_conclusion}` : '',
+      isGenImpactEnabled() ? (() => { const g = calcGenImpact(i); return `\n**Generation Impact:** ${g.hours} hrs outage · ${g.mwh} MWh · Est. ${g.currency}${Math.round(g.cost).toLocaleString()}`; })() : '',
+      `\n**Open CAPAs:** ${capas.length}`,
+      ...capas.slice(0, 5).map(c => `- ${c.description} (${c.owner || 'Unassigned'}, due ${fmtDate(c.target_date)})`),
+    ].filter(Boolean).join('\n');
+    try {
+      await navigator.clipboard.writeText(lines);
+      toast('Teams / Email brief copied to clipboard');
+    } catch {
+      toast('Could not copy to clipboard');
+    }
+  },
+  'export-capa-ics': (el) => {
+    const c = (DB.capa_actions || []).find(x => x.id === el.dataset.capa);
+    if (!c || !c.target_date) { toast('No target due date set on this CAPA'); return; }
+    const inv = invById(c.investigation_id);
+    const dt = new Date(c.target_date);
+    const ymd = dt.toISOString().slice(0, 10).replace(/-/g, '');
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      `PRODID:-//${APP_NAME}//CAPA Reminder//EN`,
+      'BEGIN:VEVENT',
+      `UID:${c.id}@rwe-rca`,
+      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+      `DTSTART;VALUE=DATE:${ymd}`,
+      `SUMMARY:[${APP_NAME} CAPA] ${(c.description || '').slice(0, 70).replace(/[\r\n]+/g, ' ')}`,
+      `DESCRIPTION:Investigation: ${inv ? `${inv.document_code} - ${inv.title}` : ''}\\nOwner: ${c.owner || 'Unassigned'}\\nStatus: ${c.status}`,
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `capa-${c.id}.ics`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Outlook calendar (.ics) reminder downloaded');
+  },
   'export-xlsx': async (el) => {
     if (!isPro()) { openProModal('Excel (.xlsx) Export'); return; }
     const i = invById(el.dataset.id);
@@ -4487,7 +4751,23 @@ const ACTIONS = {
 
   'settings': () => openModal(settingsModal()),
   'save-settings': () => {
-    const cfg = collect(['supabase_url', 'supabase_key', 'webhook_url', 'custom_rest_url', 'custom_rest_token']);
+    const cfg = collect(['supabase_url', 'supabase_key', 'webhook_url', 'custom_rest_url', 'custom_rest_token', 'custom_rest_format', 'gen_currency']);
+    const genToggle = document.querySelector('#modalHost [name="gen_impact_enabled"]');
+    if (genToggle) cfg.gen_impact_enabled = Boolean(genToggle.checked);
+    const genFormulas = Object.assign({}, (DB.app_settings && DB.app_settings.gen_formulas) || {});
+    accessibleSites(currentUser()).forEach(site => {
+      const capEl = document.querySelector(`#modalHost [name="gen_cap_${site.id}"]`);
+      const facEl = document.querySelector(`#modalHost [name="gen_fac_${site.id}"]`);
+      const tarEl = document.querySelector(`#modalHost [name="gen_tar_${site.id}"]`);
+      if (capEl || facEl || tarEl) {
+        genFormulas[site.id] = {
+          capacity_mw: capEl ? Number(capEl.value || 0) : 100,
+          factor_pct: facEl ? Number(facEl.value || 0) : 100,
+          tariff: tarEl ? Number(tarEl.value || 0) : 75,
+        };
+      }
+    });
+    cfg.gen_formulas = genFormulas;
     const wantsExternalDb = !!(cfg.supabase_url || cfg.supabase_key || cfg.webhook_url || cfg.custom_rest_url);
     if (wantsExternalDb && !isPro()) {
       openProModal('Team Database Sync');
