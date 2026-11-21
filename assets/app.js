@@ -387,6 +387,18 @@ function setWhysConcluded(invId, val) {
   DB.app_settings.whys_concluded[invId] = Boolean(val);
 }
 
+function getInvMeta(invId) {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  const map = (s.inv_meta && typeof s.inv_meta === 'object') ? s.inv_meta : {};
+  return map[invId] || {};
+}
+
+function setInvMeta(invId, patch) {
+  if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
+  if (!DB.app_settings.inv_meta || typeof DB.app_settings.inv_meta !== 'object') DB.app_settings.inv_meta = {};
+  DB.app_settings.inv_meta[invId] = Object.assign({}, getInvMeta(invId), patch);
+}
+
 function getAuditLogs(invId) {
   const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
   const map = (s.audit_logs && typeof s.audit_logs === 'object') ? s.audit_logs : {};
@@ -1352,12 +1364,12 @@ function viewLanding() {
             <strong style="color:var(--green)">Account Created:</strong> ${esc(landingSuccessMsg)}
           </div>` : `
           <div class="login-demo-banner">
-            <strong>Tester Demo Account (Pre-filled):</strong><br>
+            <strong>${IS_RWE_WEB ? 'RWE Evaluation Account (Pre-filled):' : 'Demo Evaluation Account (Pre-filled):'}</strong><br>
             Username: <span class="mono">demo</span> &nbsp;·&nbsp; Password: <span class="mono">demo</span>
           </div>`}
           <form id="loginForm">
             ${field('Username', `<input class="input" type="text" name="login_username" value="${esc(preUser)}" autocomplete="username" required>`)}
-            ${field('Password (plain text for testing)', `<input class="input" type="text" name="login_password" value="${esc(prePass)}" autocomplete="current-password" required>`)}
+            ${field('Password', `<input class="input" type="password" name="login_password" value="${esc(prePass)}" autocomplete="current-password" required>`)}
             <div id="loginError" class="dim" style="color:var(--red);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>
             <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px 16px" data-action="login">
               ${icon('check')} Sign in to ${esc(APP_NAME)}
@@ -1564,6 +1576,7 @@ function viewDashboard() {
 function rcaRow(i) {
   const site = siteById(i.site_id);
   const role = roleForInv(currentUser(), i);
+  const meta = getInvMeta(i.id);
   return `<div class="rca-row" data-goto="#/investigations/${i.id}/overview">
     <div>${sevChip(i.severity)}</div>
     <div>
@@ -1571,6 +1584,7 @@ function rcaRow(i) {
       <div class="rca-meta">
         <span class="mono">${esc(i.document_code)}</span>
         ${site ? `<span class="chip chip-slate" style="padding:1px 6px;font-size:11px">${esc(site.code)}</span>` : ''}
+        ${meta.sap_ref ? `<span class="mono" title="SAP Notification / Work Order">SAP: ${esc(meta.sap_ref)}</span>` : ''}
         <span>${esc(i.facility_name)}</span>
         <span>${esc(i.equipment_tag || '—')}</span>
         <span>Updated ${fmtDate(i.updated_at)}</span>
@@ -1589,7 +1603,7 @@ function viewInvestigations() {
   let list = baseList.slice();
   if (invFilter.sev !== 'all') list = list.filter(i => i.severity === invFilter.sev);
   const q = invFilter.q.toLowerCase().trim();
-  if (q) list = list.filter(i => [i.title, i.document_code, i.facility_name, i.equipment_tag, i.investigator_name]
+  if (q) list = list.filter(i => [i.title, i.document_code, i.facility_name, i.equipment_tag, i.investigator_name, getInvMeta(i.id).sap_ref]
     .some(f => String(f || '').toLowerCase().includes(q)));
   list.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
 
@@ -1607,13 +1621,14 @@ function viewInvestigations() {
       <p class="lede">${baseList.length} accessible record${baseList.length === 1 ? '' : 's'} in the register.</p>
     </div>
     <div class="page-actions">
+      <button class="btn" data-action="export-inv-register">${icon('download')} Export Register (.xlsx)</button>
       ${canCreateRca(currentUser()) ? `<button class="btn btn-primary" data-action="new-rca">${icon('plus')} New RCA</button>` : ''}
     </div>
   </div>
 
   <div class="toolbar">
     ${siteFilterSelect()}
-    <div class="search">${icon('search')}<input class="input" id="invSearch" placeholder="Search title, document code, tag or investigator…" value="${esc(invFilter.q)}"></div>
+    <div class="search">${icon('search')}<input class="input" id="invSearch" placeholder="Search title, document code, SAP #, tag or investigator…" value="${esc(invFilter.q)}"></div>
     <div class="seg" id="sevSeg">${seg}</div>
   </div>
 
@@ -1996,6 +2011,7 @@ function tabOverview(i) {
       <div class="card card-pad">
         <dl class="kv">
           <dt>Document ID</dt><dd class="mono">${esc(i.document_code)}</dd>
+          ${getInvMeta(i.id).sap_ref ? `<dt>SAP Notification / WO</dt><dd class="mono">${esc(getInvMeta(i.id).sap_ref)}</dd>` : ''}
           <dt>Facility / Site</dt><dd>${esc(i.facility_name)}</dd>
           <dt>Asset category</dt><dd>${esc(ASSET[i.asset_category] || i.asset_category || '—')}</dd>
           <dt>Equipment tag</dt><dd class="mono">${esc(i.equipment_tag || '—')}</dd>
@@ -2680,6 +2696,7 @@ function tabReport(i) {
 
         <dl class="kv" style="margin-top:20px">
           <dt>Document ID</dt><dd class="mono">${esc(i.document_code)}</dd>
+          ${getInvMeta(i.id).sap_ref ? `<dt>SAP Notification / WO</dt><dd class="mono">${esc(getInvMeta(i.id).sap_ref)}</dd>` : ''}
           <dt>Facility / Site</dt><dd>${esc(i.facility_name || '—')}</dd>
           <dt>Asset hierarchy</dt><dd>${esc(ASSET[i.asset_category] || '—')}</dd>
           <dt>Equipment tag</dt><dd class="mono">${esc(i.equipment_tag || '—')}</dd>
@@ -2795,12 +2812,20 @@ function tabReport(i) {
       : '<p class="dim">No attachments uploaded.</p>'}
 
     <div class="report-signoff">
-      <div class="eyebrow" style="margin-bottom:4px">Document Sign-Off &amp; Audit Approval</div>
-      <p class="dim" style="margin:0;font-size:12.5px">${esc(APP_NAME)} Engineering Report · ${esc(i.document_code)} · Generated ${generatedAt}</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+        <div>
+          <div class="eyebrow" style="margin-bottom:4px">Document Sign-Off &amp; Audit Approval</div>
+          <p class="dim" style="margin:0;font-size:12.5px">${esc(APP_NAME)} Engineering Report · ${esc(i.document_code)} · Generated ${generatedAt}</p>
+        </div>
+        ${canEditInv(i) ? `<div class="chip-row no-print">
+          <button class="btn btn-sm" data-action="signoff-rca" data-id="${i.id}" data-role="reviewer">${icon('check')} Sign as Technical Reviewer</button>
+          <button class="btn btn-sm" data-action="signoff-rca" data-id="${i.id}" data-role="hse">${icon('check')} Sign as Ops / HSE Approval</button>
+        </div>` : ''}
+      </div>
       <div class="report-signoff-grid">
         <div class="report-sig-box"><strong>Investigator</strong>${esc(i.investigator_name || '—')}${i.investigator_role ? ' · ' + esc(i.investigator_role) : ''}</div>
-        <div class="report-sig-box"><strong>Technical Reviewer</strong>Signature / Date</div>
-        <div class="report-sig-box"><strong>Operations / HSE Approval</strong>Signature / Date</div>
+        <div class="report-sig-box"><strong>Technical Reviewer</strong>${esc(getInvMeta(i.id).reviewer_signoff || 'Pending review sign-off')}</div>
+        <div class="report-sig-box"><strong>Operations / HSE Approval</strong>${esc(getInvMeta(i.id).hse_signoff || 'Pending approval sign-off')}</div>
       </div>
     </div>
   </div>`;
@@ -2856,7 +2881,10 @@ function viewCapas() {
   </div>
   <div class="toolbar">
     <div class="seg" id="capaSeg">${seg}</div>
-    ${asanaCfg.pat ? `<button class="btn btn-sm" data-action="asana-sync" title="Two-way sync CAPAs with Asana">${icon('refresh')} Sync Asana</button>` : `<button class="btn btn-ghost btn-sm" data-action="settings" title="Connect Asana in Settings">Connect Asana…</button>`}
+    <div class="chip-row">
+      <button class="btn btn-sm" data-action="export-capa-register">${icon('download')} Export CAPAs (.xlsx)</button>
+      ${asanaCfg.pat ? `<button class="btn btn-sm" data-action="asana-sync" title="Two-way sync CAPAs with Asana">${icon('refresh')} Sync Asana</button>` : `<button class="btn btn-ghost btn-sm" data-action="settings" title="Connect Asana in Settings">Connect Asana…</button>`}
+    </div>
   </div>
   <div class="card table-scroll">
     <table class="table table-wide">
@@ -3155,6 +3183,10 @@ function rcaForm(i) {
         ${field(`Asset / Equipment Tag${isNew ? ' *' : ''}`, `<input class="input" name="equipment_tag" value="${esc(d.equipment_tag)}" placeholder="e.g. WTG-14 / CB-04" ${isNew ? 'required' : ''}>`)}
       </div>
       <div class="form-grid">
+        ${field('SAP Notification / Work Order # (optional)', `<input class="input mono" name="sap_ref" value="${esc(i ? (getInvMeta(i.id).sap_ref || '') : '')}" placeholder="e.g. Notif 014000169931 / WO 24000170866">`)}
+        ${field(`System / Operating Spec${isNew ? ' *' : ''}`, `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="e.g. 66 kV / 220 kV" ${isNew ? 'required' : ''}>`)}
+      </div>
+      <div class="form-grid">
         ${field('Severity', select('severity', optsFrom(SEVERITY), d.severity))}
         ${field('Status', select('status', optsFrom(STATUS), d.status))}
       </div>
@@ -3163,11 +3195,10 @@ function rcaForm(i) {
         ${field('Fault category', select('fault_category', Object.entries(FAULT), d.fault_category))}
       </div>
       <div class="form-grid">
-        ${field(`System / Operating Spec${isNew ? ' *' : ''}`, `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="e.g. 66 kV / 220 kV" ${isNew ? 'required' : ''}>`)}
         ${field(`Incident date${isNew ? ' *' : ''}`, `<input class="input" type="date" name="incident_date" value="${toDateInput(d.incident_date)}" ${isNew ? 'required' : ''}>`)}
+        ${field(`Investigator name${isNew ? ' *' : ''}`, `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="e.g. Alex Morgan" ${isNew ? 'required' : ''}>`)}
       </div>
       <div class="form-grid">
-        ${field(`Investigator name${isNew ? ' *' : ''}`, `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="e.g. Alex Morgan" ${isNew ? 'required' : ''}>`)}
         ${field(`Investigator role${isNew ? ' *' : ''}`, `<input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="e.g. Reliability Engineer" ${isNew ? 'required' : ''}>`)}
       </div>
       ${isGenImpactEnabled() ? (() => {
@@ -3626,26 +3657,28 @@ async function downloadTimelineTemplate() {
     const wsGuide = XLSX.utils.aoa_to_sheet(catGuide);
     wsGuide['!cols'] = [{ wch: 22 }, { wch: 58 }];
     XLSX.utils.book_append_sheet(wb, wsGuide, 'Categories');
+    const tplName = `${APP_NAME.toLowerCase()}-timeline-template`;
     if (window.TotalRCANative && window.TotalRCANative.isNative()) {
       const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-      window.TotalRCANative.shareFile('totalrca-timeline-template.xlsx', b64, true).then(ok => {
+      window.TotalRCANative.shareFile(`${tplName}.xlsx`, b64, true).then(ok => {
         if (ok) toast('Excel template shared');
       });
     } else {
-      XLSX.writeFile(wb, 'totalrca-timeline-template.xlsx');
+      XLSX.writeFile(wb, `${tplName}.xlsx`);
       toast('Excel template downloaded');
     }
   } else {
+    const tplName = `${APP_NAME.toLowerCase()}-timeline-template`;
     const csv = [headers, ...sampleRows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
     if (window.TotalRCANative && window.TotalRCANative.isNative()) {
-      window.TotalRCANative.shareFile('totalrca-timeline-template.csv', csv, false).then(ok => {
+      window.TotalRCANative.shareFile(`${tplName}.csv`, csv, false).then(ok => {
         if (ok) toast('CSV template shared');
       });
     } else {
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'totalrca-timeline-template.csv';
+      a.download = `${tplName}.csv`;
       a.click();
       URL.revokeObjectURL(a.href);
       toast('CSV template downloaded');
@@ -4461,6 +4494,8 @@ function methodGuideModal() {
         const cb = document.querySelector(`#modalHost [name="method_${k}"]`);
         if (cb) setInvMethod(targetId, k, cb.checked);
       });
+      const sapEl = document.querySelector('#modalHost [name="sap_ref"]');
+      if (sapEl) setInvMeta(targetId, { sap_ref: (sapEl.value || '').trim() });
     };
     if (id) {
       const i = invById(id);
@@ -4786,6 +4821,85 @@ function methodGuideModal() {
     });
   },
 
+  'signoff-rca': (el) => {
+    const invId = el.dataset.id;
+    const role = el.dataset.role;
+    if (!requireEdit(invId)) return;
+    const me = currentUser();
+    const who = me ? `${me.full_name || me.username}${me.role_title ? ` (${me.role_title})` : ''}` : 'Authorised Engineer';
+    const stamp = `${who} · Signed ${fmtDateTime(new Date().toISOString())}`;
+    if (role === 'reviewer') {
+      setInvMeta(invId, { reviewer_signoff: stamp });
+      recordAudit(invId, 'Technical Review Sign-Off', stamp);
+      toast('Technical Reviewer sign-off recorded');
+    } else {
+      setInvMeta(invId, { hse_signoff: stamp });
+      recordAudit(invId, 'Operations / HSE Approval Sign-Off', stamp);
+      toast('Operations / HSE Approval sign-off recorded');
+    }
+    save(); render();
+  },
+  'export-inv-register': async () => {
+    if (!window.XLSX) {
+      toast('Loading Excel generator…');
+      try { await ensureVendor('XLSX', 'assets/vendor/xlsx.full.min.js'); } catch (err) { toast('Could not load Excel generator'); return; }
+    }
+    const list = filteredInvs();
+    const rows = [
+      ['Document ID', 'SAP Notification / WO', 'Title', 'Site Code', 'Facility', 'Equipment Tag', 'Asset Category', 'Fault Category', 'Severity', 'Status', 'Investigator', 'Incident Date (UTC)', 'Updated (UTC)'],
+      ...list.map(i => {
+        const site = siteById(i.site_id);
+        return [
+          i.document_code || '',
+          getInvMeta(i.id).sap_ref || '',
+          i.title || '',
+          site ? site.code : '',
+          i.facility_name || '',
+          i.equipment_tag || '',
+          ASSET[i.asset_category] || i.asset_category || '',
+          FAULT[i.fault_category] || i.fault_category || '',
+          (SEVERITY[i.severity] || {}).label || i.severity || '',
+          (STATUS[i.status] || {}).label || i.status || '',
+          i.investigator_name || '',
+          fmtDateTime(i.incident_date),
+          fmtDateTime(i.updated_at),
+        ];
+      }),
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Investigations Register');
+    XLSX.writeFile(wb, `${APP_NAME.toLowerCase()}-investigations-register.xlsx`);
+    toast('Investigations register exported (.xlsx)');
+  },
+  'export-capa-register': async () => {
+    if (!window.XLSX) {
+      toast('Loading Excel generator…');
+      try { await ensureVendor('XLSX', 'assets/vendor/xlsx.full.min.js'); } catch (err) { toast('Could not load Excel generator'); return; }
+    }
+    const list = filteredCapas();
+    const rows = [
+      ['RCA Document ID', 'SAP Notification / WO', 'Site', 'CAPA Type', 'Action Description', 'Owner', 'Due Date', 'Status', 'Verification Notes'],
+      ...list.map(c => {
+        const inv = invById(c.investigation_id);
+        const site = inv ? siteById(inv.site_id) : null;
+        return [
+          inv ? inv.document_code : '',
+          inv ? (getInvMeta(inv.id).sap_ref || '') : '',
+          site ? `${site.code} — ${site.name}` : '',
+          CAPA_TYPE[c.type] || c.type || '',
+          c.description || '',
+          c.owner || '',
+          fmtDate(c.target_date),
+          (CAPA_STATUS[c.status] || {}).label || c.status || '',
+          c.verification_notes || '',
+        ];
+      }),
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'CAPA Register');
+    XLSX.writeFile(wb, `${APP_NAME.toLowerCase()}-capa-register.xlsx`);
+    toast('CAPA register exported (.xlsx)');
+  },
   'copy-teams-brief': async (el) => {
     const i = invById(el.dataset.id);
     if (!i) return;
@@ -5140,16 +5254,16 @@ function methodGuideModal() {
               (CAPA_STATUS[c.status] || {}).label || c.status,
             ]))
           : bodyP('No CAPA actions raised.'),
-        h1('09. Document Sign-Off'),
+        h1(`${sn()}. Document Sign-Off`),
         makeTable(['Role', 'Name / Signature / Date'], [
           ['Investigator', `${i.investigator_name || '—'}${i.investigator_role ? ' · ' + i.investigator_role : ''}`],
-          ['Technical Reviewer', '___________________________  Date: __________'],
-          ['Operations / HSE Approval', '___________________________  Date: __________'],
+          ['Technical Reviewer', getInvMeta(i.id).reviewer_signoff || '___________________________  Date: __________'],
+          ['Operations / HSE Approval', getInvMeta(i.id).hse_signoff || '___________________________  Date: __________'],
         ]),
       );
 
       const doc = new Document({ sections: [{ children: children.filter(Boolean) }] });
-      const fileName = `${(i.document_code || 'TotalRCA-Report').replace(/[^a-z0-9._-]/gi, '_')}.docx`;
+      const fileName = `${(i.document_code || `${APP_NAME}-Report`).replace(/[^a-z0-9._-]/gi, '_')}.docx`;
       if (window.TotalRCANative && window.TotalRCANative.isNative()) {
         const b64 = await Packer.toBase64String(doc);
         const ok = await window.TotalRCANative.shareFile(fileName, b64, true);
