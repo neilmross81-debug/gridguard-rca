@@ -9,7 +9,10 @@ const DEMO_INV_ID = 'rca-pump-p104a-001';
 const FREE_CUSTOM_RCA_LIMIT = 1;
 const FREE_CAPA_PER_CUSTOM_RCA_LIMIT = 3;
 
-const isPro = () => !window.TotalRCANative || !window.TotalRCANative.isNative() || !!window.TotalRCANative.isPro();
+const IS_RWE_WEB = !(window.APP_FLAVOR === 'totalrca' || (window.TotalRCANative && window.TotalRCANative.isNative()));
+const APP_NAME = IS_RWE_WEB ? 'RWE-RCA' : 'TotalRCA';
+const APP_SUB = IS_RWE_WEB ? 'RWE Generation & Renewables' : 'HV & Renewable Operations';
+const isPro = () => IS_RWE_WEB || !window.TotalRCANative || !window.TotalRCANative.isNative() || !!window.TotalRCANative.isPro();
 const customRcas = () => (DB?.investigations || []).filter(i => i.id !== DEMO_INV_ID);
 
 /* ---------- vocabularies ---------- */
@@ -201,15 +204,36 @@ const timelineChip = (s) => { const m = TIMELINE_CAT[s]; return m ? chip(m.label
 const rpnOf = (f) => Number(f.severity || 0) * Number(f.occurrence || 0) * Number(f.detection || 0);
 const riskBand = (rpn) => rpn >= 200 ? ['Critical', 'red'] : rpn >= 100 ? ['High', 'amber'] : rpn >= 50 ? ['Medium', 'cyan'] : ['Low', 'green'];
 
+const _vendorLoads = {};
+function ensureVendor(globalName, src) {
+  if (window[globalName]) return Promise.resolve(window[globalName]);
+  if (_vendorLoads[src]) return _vendorLoads[src];
+  _vendorLoads[src] = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(`Failed to initialize ${globalName}`));
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
+  return _vendorLoads[src];
+}
+
 /* ---------- store ---------- */
 
 function seed() {
   const INV = DEMO_INV_ID;
+  const sites = IS_RWE_WEB
+    ? [
+        { id: 'site-main', name: 'North Sea Offshore Wind OSP-01', code: 'RWE-OSP1', region: 'Offshore Wind', voltage_class: '220 kV / 66 kV' },
+        { id: 'site-plant2', name: 'CCGT Generation & BESS Hub', code: 'RWE-GEN2', region: 'Thermal & Storage', voltage_class: '400 kV / 11 kV' },
+      ]
+    : [
+        { id: 'site-main', name: 'Main Operations Facility', code: 'FAC-01', region: 'Primary Site', voltage_class: '400V / Mechanical' },
+        { id: 'site-plant2', name: 'Processing Plant B', code: 'PLT-02', region: 'Secondary Site', voltage_class: '11 kV / 400V' },
+      ];
   return {
-    sites: [
-      { id: 'site-main', name: 'Main Operations Facility', code: 'FAC-01', region: 'Primary Site', voltage_class: '400V / Mechanical' },
-      { id: 'site-plant2', name: 'Processing Plant B', code: 'PLT-02', region: 'Secondary Site', voltage_class: '11 kV / 400V' },
-    ],
+    sites,
     app_users: [
       {
         id: 'usr-demo',
@@ -1000,11 +1024,12 @@ let landingPrefill = null;
 async function oauthSignIn(provider) {
   const { url } = getSupabaseCfg();
   if (!url) {
-    toast('Connect a Supabase project in Settings first to use social login');
+    toast('Connect a Supabase project in Settings first to use SSO / social login');
     return;
   }
   const redirectTo = window.location.origin + window.location.pathname;
-  const authUrl = `${url}/auth/v1/authorize?provider=${encodeURIComponent(provider)}&redirect_to=${encodeURIComponent(redirectTo)}`;
+  const extraScopes = provider === 'azure' ? '&scopes=openid%20profile%20email' : '';
+  const authUrl = `${url}/auth/v1/authorize?provider=${encodeURIComponent(provider)}&redirect_to=${encodeURIComponent(redirectTo)}${extraScopes}`;
   if (window.TotalRCANative && window.TotalRCANative.isNative()) {
     window.open(authUrl, '_system');
     return;
@@ -1039,15 +1064,17 @@ async function handleOAuthCallback() {
       String(u.id || '') === `usr-oauth-${authUser.id}`
     );
     if (!appUser) {
-      const defaultSiteId = (DB.sites && DB.sites[0] && DB.sites[0].id) || 'site-osp1';
+      const allSiteRoles = {};
+      (DB.sites || []).forEach(s => { allSiteRoles[s.id] = 'admin'; });
+      if (!Object.keys(allSiteRoles).length) allSiteRoles['site-main'] = 'admin';
       appUser = {
         id: `usr-oauth-${String(authUser.id || uid('u')).slice(0, 24)}`,
         username: email,
         password: '',
         full_name: fullName,
-        role_title: `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} User`,
-        is_global_admin: 0,
-        site_roles: { [defaultSiteId]: 'editor' },
+        role_title: providerName === 'azure' ? 'RWE Windows SSO Admin' : `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} Admin`,
+        is_global_admin: 1,
+        site_roles: allSiteRoles,
         assigned_rcas: [],
       };
       if (!Array.isArray(DB.app_users)) DB.app_users = [];
@@ -1090,8 +1117,8 @@ function viewLanding() {
             <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/>
           </svg>
         </div>
-        <h1 class="landing-title">TotalRCA</h1>
-        <p class="landing-sub">HV &amp; Renewable Operations · Multi-Site Root Cause Intelligence</p>
+        <h1 class="landing-title">${esc(APP_NAME)}</h1>
+        <p class="landing-sub">${esc(APP_SUB)} · Multi-Site Root Cause Intelligence</p>
       </div>
 
       <div class="login-card">
@@ -1102,8 +1129,8 @@ function viewLanding() {
 
         ${isReg ? `
           <div class="login-demo-banner">
-            <strong>New Editor Account:</strong><br>
-            Create your username &amp; password below. Accounts default to <strong>Editor</strong> on <strong>North Sea Offshore Substation OSP-01</strong>; an Admin can assign additional sites later.
+            <strong>New Admin Tester Account:</strong><br>
+            Create your username &amp; password below. All new accounts currently default to <strong>Global Admin</strong> so testers can access every feature and site.
           </div>
           <form id="registerForm">
             ${field('Username', `<input class="input mono" type="text" name="reg_username" placeholder="e.g. j.smith" autocomplete="username" required>`)}
@@ -1114,7 +1141,7 @@ function viewLanding() {
             </div>
             <div id="registerError" class="dim" style="color:var(--red);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>
             <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px 16px" data-action="register">
-              ${icon('plus')} Create Editor Account
+              ${icon('plus')} Create Admin Account
             </button>
           </form>
         ` : `
@@ -1130,7 +1157,7 @@ function viewLanding() {
             ${field('Password (plain text for testing)', `<input class="input" type="text" name="login_password" value="${esc(prePass)}" autocomplete="current-password" required>`)}
             <div id="loginError" class="dim" style="color:var(--red);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>
             <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px 16px" data-action="login">
-              ${icon('check')} Sign in to TotalRCA
+              ${icon('check')} Sign in to ${esc(APP_NAME)}
             </button>
           </form>
           <div class="login-quick">
@@ -1146,6 +1173,10 @@ function viewLanding() {
           <span class="dim" style="font-size:12px">or continue with</span>
           <div style="flex:1;height:1px;background:var(--line)"></div>
         </div>
+        <button type="button" class="btn btn-sm" style="width:100%;justify-content:center;margin-bottom:8px" data-action="oauth-login" data-provider="azure">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path fill="#F25022" d="M2 2h9.5v9.5H2z"/><path fill="#7FBA00" d="M12.5 2H22v9.5h-9.5z"/><path fill="#00A4EF" d="M2 12.5h9.5V22H2z"/><path fill="#FFB900" d="M12.5 12.5H22V22h-9.5z"/></svg>
+          Microsoft / Windows SSO${IS_RWE_WEB ? ' (RWE)' : ''}
+        </button>
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
           <button type="button" class="btn btn-sm" style="justify-content:center" data-action="oauth-login" data-provider="google">
             <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.8-5.5 3.8-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.3 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12Z"/></svg>
@@ -2120,6 +2151,7 @@ function tabReport(i) {
     <div class="section-head no-print">
       <div><h2 class="h3" style="margin:0;border:0;padding:0">Engineering RCA report</h2><p>Includes cover page, visual diagrams, table of contents, and sign-off block</p></div>
       <div class="chip-row">
+        <button class="btn btn-sm" data-action="export-xlsx" data-id="${i.id}">${icon('download')} Export Excel (.xlsx)</button>
         <button class="btn btn-sm" data-action="export-docx" data-id="${i.id}">${icon('download')} Export Word (.docx)</button>
         <button class="btn btn-sm" data-action="export-pptx" data-id="${i.id}">${icon('download')} Export PowerPoint (.pptx)</button>
         <button class="btn btn-primary btn-sm" data-action="print">${icon('print')} Print / Save PDF</button>
@@ -2135,7 +2167,7 @@ function tabReport(i) {
                 <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/>
               </svg>
             </span>
-            <span>TotalRCA</span>
+            <span>${esc(APP_NAME)}</span>
           </div>
           <span class="report-cover-class">Engineering Audit Report · Confidential</span>
         </div>
@@ -2257,7 +2289,7 @@ function tabReport(i) {
 
     <div class="report-signoff">
       <div class="eyebrow" style="margin-bottom:4px">Document Sign-Off &amp; Audit Approval</div>
-      <p class="dim" style="margin:0;font-size:12.5px">TotalRCA Engineering Report · ${esc(i.document_code)} · Generated ${generatedAt}</p>
+      <p class="dim" style="margin:0;font-size:12.5px">${esc(APP_NAME)} Engineering Report · ${esc(i.document_code)} · Generated ${generatedAt}</p>
       <div class="report-signoff-grid">
         <div class="report-sig-box"><strong>Investigator</strong>${esc(i.investigator_name || '—')}${i.investigator_role ? ' · ' + esc(i.investigator_role) : ''}</div>
         <div class="report-sig-box"><strong>Technical Reviewer</strong>Signature / Date</div>
@@ -2982,7 +3014,7 @@ function previewAttachmentModal(att) {
 
 let pendingTimelineImport = null;
 
-function downloadTimelineTemplate() {
+async function downloadTimelineTemplate() {
   const headers = ['Date (YYYY-MM-DD)', 'Time (HH:MM:SS UTC)', 'Category', 'Source / System', 'Event Headline', 'Technical Detail / Evidence'];
   const sampleRows = [
     ['2026-11-14', '03:38:15', 'SCADA / Alarm', 'SCADA / RTU', 'Stage-1 SF6 low-density warning on Bay 04 Phase B', 'Compartment pressure crossed 0.56 MPa warning threshold.'],
@@ -2997,6 +3029,7 @@ function downloadTimelineTemplate() {
     ['Observation', 'General note or contextual observation (Slate)'],
   ];
 
+  try { await ensureVendor('XLSX', 'assets/vendor/xlsx.full.min.js'); } catch (_) {}
   if (window.XLSX) {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
@@ -3242,6 +3275,7 @@ function settingsModal() {
   return {
     eyebrow: 'Configuration', title: 'Settings', width: 'wide',
     body: `
+      ${IS_RWE_WEB ? '' : `
       <section style="margin-bottom:8px">
         <div class="section-head" style="margin-bottom:8px">
           <div>
@@ -3255,12 +3289,12 @@ function settingsModal() {
           <button class="btn btn-sm" type="button" data-action="restore-purchases">Restore Purchases</button>
         </div>
       </section>
-      <div class="divider"></div>
+      <div class="divider"></div>`}
       <section style="margin-bottom:8px">
         <div class="section-head" style="margin-bottom:8px">
           <div>
             <h3 class="h3" style="margin-bottom:4px">Team Database Sync (Bring Your Own Database)</h3>
-            <p class="muted" style="font-size:13px;margin:0">Runs 100% local on your device by default with no central server. Teams on Pro can connect their own Supabase project, Google Apps Script, or custom REST API.</p>
+            <p class="muted" style="font-size:13px;margin:0">${IS_RWE_WEB ? 'Runs local-first in your browser by default. Connect your RWE Supabase project, Google Apps Script, or custom REST API.' : 'Runs 100% local on your device by default with no central server. Teams on Pro can connect their own Supabase project, Google Apps Script, or custom REST API.'}</p>
           </div>
           ${hasSupabase() ? chip('Supabase Configured', 'green') : chip('Local Only', 'slate')}
         </div>
@@ -3455,17 +3489,17 @@ const ACTIONS = {
       if (errEl) errEl.textContent = 'That username is already taken. Choose another or sign in.';
       return;
     }
-    const demoUser = (DB.app_users || []).find(u => u.id === 'usr-demo');
-    const demoSiteId = (demoUser && demoUser.site_roles && Object.keys(demoUser.site_roles)[0]) || (DB.sites && DB.sites[0]?.id) || 'site-osp1';
-    const demoSite = siteById(demoSiteId);
+    const allSiteRoles = {};
+    (DB.sites || []).forEach(s => { allSiteRoles[s.id] = 'admin'; });
+    if (!Object.keys(allSiteRoles).length) allSiteRoles['site-main'] = 'admin';
     const newUser = {
       id: uid('usr'),
       username: uname,
       password: pass,
       full_name: fullName || uname,
-      role_title: roleTitle || 'Editor',
-      is_global_admin: 0,
-      site_roles: demoSiteId ? { [demoSiteId]: 'editor' } : {},
+      role_title: roleTitle || 'Admin Tester',
+      is_global_admin: 1,
+      site_roles: allSiteRoles,
       assigned_rcas: [],
     };
     if (!Array.isArray(DB.app_users)) DB.app_users = [];
@@ -3473,7 +3507,7 @@ const ACTIONS = {
     save();
     await sbUpsert('app_users', newUser);
     landingPrefill = { username: uname, password: pass };
-    landingSuccessMsg = `@${uname} created as Editor for ${demoSite ? `${demoSite.code} — ${demoSite.name}` : 'OSP-01'}. Sign in below.`;
+    landingSuccessMsg = `@${uname} created as Global Admin (all sites & features unlocked). Sign in below.`;
     landingMode = 'login';
     render();
     toast(`Account @${uname} created`);
@@ -3931,13 +3965,105 @@ const ACTIONS = {
     });
   },
 
+  'export-xlsx': async (el) => {
+    if (!isPro()) { openProModal('Excel (.xlsx) Export'); return; }
+    const i = invById(el.dataset.id);
+    if (!i) return;
+    if (!window.XLSX) {
+      toast('Loading Excel generator…');
+      try { await ensureVendor('XLSX', 'assets/vendor/xlsx.full.min.js'); } catch (err) { toast(err.message || 'Could not load Excel generator'); return; }
+    }
+    toast('Building Excel workbook…');
+    try {
+      const wb = XLSX.utils.book_new();
+      const site = siteById(i.site_id);
+      const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const ish = byInv('ishikawa_causes', i.id);
+      const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
+      const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
+
+      const overviewRows = [
+        ['Platform', APP_NAME],
+        ['Document Code', i.document_code || ''],
+        ['Title', i.title || ''],
+        ['Site', site ? `${site.code} — ${site.name}` : ''],
+        ['Facility / Equipment', `${i.facility_name || ''} ${i.equipment_tag ? `(${i.equipment_tag})` : ''}`.trim()],
+        ['Voltage / Class', i.voltage_class || ''],
+        ['Severity', (SEVERITY[i.severity] && SEVERITY[i.severity].label) || i.severity || ''],
+        ['Status', (STATUS[i.status] && STATUS[i.status].label) || i.status || ''],
+        ['Fault Category', FAULT[i.fault_category] || i.fault_category || ''],
+        ['Asset Category', ASSET[i.asset_category] || i.asset_category || ''],
+        ['Investigator', `${i.investigator_name || ''} ${i.investigator_role ? `(${i.investigator_role})` : ''}`.trim()],
+        ['Problem Statement', i.problem_statement || ''],
+        ['Executive Summary', i.executive_summary || ''],
+        ['Root Cause Conclusion', i.root_cause_conclusion || ''],
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(overviewRows), 'Overview');
+
+      const tlRows = [['Timestamp (UTC)', 'Category', 'Source', 'Headline', 'Detail'], ...events.map(e => [
+        fmtDateTimeSec(e.timestamp),
+        (TIMELINE_CAT[e.category] && TIMELINE_CAT[e.category].label) || e.category || '',
+        e.source || '',
+        e.title || '',
+        e.detail || '',
+      ])];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tlRows), 'Timeline');
+
+      const whyRows = [['Level', 'Question', 'Answer', 'Root Cause', 'Evidence'], ...whys.map(w => [
+        w.level || '',
+        w.question || '',
+        w.answer || '',
+        w.is_root_cause ? 'Yes' : 'No',
+        w.evidence || '',
+      ])];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(whyRows), '5 Whys');
+
+      const ishRows = [['6M Vector', 'Cause', 'Detail', 'Primary'], ...ish.map(c => [
+        VECTOR[c.vector] || c.vector || '',
+        c.cause || '',
+        c.detail || '',
+        c.is_primary ? 'Yes' : 'No',
+      ])];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ishRows), 'Ishikawa 6M');
+
+      const fmeaRows = [['Failure Mode', 'Effect', 'Cause', 'Severity', 'Occurrence', 'Detection', 'RPN', 'Risk Band', 'Recommended Action'], ...fmea.map(f => {
+        const rpn = rpnOf(f);
+        return [f.failure_mode || '', f.effect || '', f.cause || '', f.severity || 0, f.occurrence || 0, f.detection || 0, rpn, riskBand(rpn)[0], f.recommended_action || ''];
+      })];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fmeaRows), 'FMEA');
+
+      const capaRows = [['Type', 'Title', 'Description', 'Owner', 'Target Date', 'Status', 'Verification Notes'], ...capas.map(c => [
+        CAPA_TYPE[c.action_type] || c.action_type || '',
+        c.title || '',
+        c.description || '',
+        c.owner_name || '',
+        fmtDate(c.target_date),
+        (CAPA_STATUS[c.status] && CAPA_STATUS[c.status].label) || c.status || '',
+        c.verification_notes || '',
+      ])];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(capaRows), 'CAPA Plan');
+
+      const filename = `${(APP_NAME || 'rca').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${(i.document_code || i.id).replace(/[^a-zA-Z0-9._-]+/g, '_')}.xlsx`;
+      if (window.TotalRCANative && window.TotalRCANative.isNative()) {
+        const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+        const ok = await window.TotalRCANative.shareFile(filename, b64, true);
+        if (ok) toast('Excel workbook shared');
+      } else {
+        XLSX.writeFile(wb, filename);
+        toast('Excel workbook downloaded');
+      }
+    } catch (err) {
+      toast(err.message || 'Could not generate Excel workbook');
+    }
+  },
   'export-docx': async (el) => {
     if (!isPro()) { openProModal('Word (.docx) Export'); return; }
     const i = invById(el.dataset.id);
     if (!i) return;
     if (!window.docx) {
-      toast('Word generator is still loading — try again in a moment');
-      return;
+      toast('Loading Word generator…');
+      try { await ensureVendor('docx', 'assets/vendor/docx.iife.js'); } catch (err) { toast(err.message || 'Could not load Word generator'); return; }
     }
     toast('Building Word document…');
     try {
@@ -4120,8 +4246,8 @@ const ACTIONS = {
     const i = invById(el.dataset.id);
     if (!i) return;
     if (typeof window.PptxGenJS !== 'function') {
-      toast('PowerPoint generator is still loading — try again in a moment');
-      return;
+      toast('Loading PowerPoint generator…');
+      try { await ensureVendor('PptxGenJS', 'assets/vendor/pptxgen.bundle.js'); } catch (err) { toast(err.message || 'Could not load PowerPoint generator'); return; }
     }
     toast('Building PowerPoint deck…');
     try {
@@ -4621,21 +4747,26 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'timelineImportFile' && e.target.files[0]) {
     const file = e.target.files[0];
     const invId = e.target.dataset.invId;
-    if (!window.XLSX) { toast('Excel parser is still loading — try again in a moment'); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const wb = XLSX.read(new Uint8Array(reader.result), { type: 'array', cellDates: false });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rawRows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
-        const parsed = parseTimelineRows(rawRows);
-        if (!parsed.length) { toast('No valid timeline events found in that spreadsheet'); return; }
-        openModal(timelineImportModal(invId, parsed, file.name));
-      } catch (err) {
-        toast('Could not read that Excel / CSV file');
+    (async () => {
+      if (!window.XLSX) {
+        toast('Loading Excel parser…');
+        try { await ensureVendor('XLSX', 'assets/vendor/xlsx.full.min.js'); } catch (err) { toast(err.message || 'Could not load Excel parser'); return; }
       }
-    };
-    reader.readAsArrayBuffer(file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const wb = XLSX.read(new Uint8Array(reader.result), { type: 'array', cellDates: false });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rawRows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+          const parsed = parseTimelineRows(rawRows);
+          if (!parsed.length) { toast('No valid timeline events found in that spreadsheet'); return; }
+          openModal(timelineImportModal(invId, parsed, file.name));
+        } catch (err) {
+          toast('Could not read that Excel / CSV file');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    })();
     return;
   }
   if (e.target.id === 'importFile' && e.target.files[0]) {
@@ -4687,3 +4818,6 @@ if (window.TotalRCANative) {
   });
 }
 syncFromSupabase(false).then(() => handleOAuthCallback());
+if (!window.TotalRCANative?.isNative() && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}

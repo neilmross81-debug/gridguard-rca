@@ -58,6 +58,57 @@
   --max: 1340px;
 }
 
+/* ---------- RWE-RCA Corporate Web Theme (matching rwe.com) ---------- */
+:root[data-brand="rwe"] {
+  --bg:            #F4F7FA;
+  --bg-alt:        #EDF2F7;
+  --panel:         #FFFFFF;
+  --panel-2:       #EFF4F9;
+  --panel-3:       #E2EAF3;
+  --line:          #D8E1EC;
+  --line-strong:   #C6D0DD;
+
+  --ink:           #0F233C;
+  --ink-2:         #2B415C;
+  --ink-3:         #526780;
+  --ink-4:         #7E91A8;
+
+  --accent:        #1D4276;
+  --accent-2:      #14315A;
+  --accent-soft:   #E8EFF7;
+  --accent-line:   #1D4276;
+
+  --cyan:          #00B38D;
+  --cyan-soft:     #E6F8F4;
+  --green:         #008A6C;
+  --green-soft:    #E6F7F2;
+  --slate:         #526780;
+  --slate-soft:    #EDF2F7;
+}
+
+:root[data-brand="rwe"] .nav {
+  border-top: 3px solid #00B38D;
+  background: rgba(255, 255, 255, 0.96);
+}
+:root[data-brand="rwe"] .brand-mark,
+:root[data-brand="rwe"] .landing-brand-mark {
+  background: linear-gradient(135deg, #1D4276 0%, #00B38D 100%);
+}
+:root[data-brand="rwe"] .landing {
+  background: radial-gradient(circle at 18% 20%, rgba(0, 179, 141, 0.10), transparent 45%),
+              radial-gradient(circle at 82% 80%, rgba(29, 66, 118, 0.12), transparent 50%),
+              var(--bg);
+}
+:root[data-brand="rwe"] .nav-link.on {
+  color: #1D4276;
+  border-bottom-color: #00B38D;
+}
+:root[data-brand="rwe"] .chip-accent {
+  background: #E6F8F4;
+  color: #007A60;
+  border-color: #A7E8D8;
+}
+
 * { box-sizing: border-box; }
 
 html, body { margin: 0; padding: 0; }
