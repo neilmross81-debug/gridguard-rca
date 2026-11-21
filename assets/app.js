@@ -2056,6 +2056,7 @@ function tabWhys(i) {
       ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-why" data-id="${i.id}">${icon('plus')} Add why</button>` : ''}
     </div>
   </div>
+  ${nodes.length ? renderWhysFlowSvg(nodes) : ''}
   ${complexityHint}
   ${body}`;
 }
@@ -2218,11 +2219,33 @@ function tabFaultTree(i) {
   const body = roots.map(r => renderNode(r, 0)).join('')
     || `<div class="empty"><strong>No Fault Tree built yet</strong>Start with the Top Event (e.g. "${esc(i.title)}") and break it down using <strong>AND</strong> (all required) and <strong>OR</strong> (any sufficient) logic gates.</div>`;
 
+  const ftaSvg = nodes.length ? (() => {
+    const flat = [];
+    const walk = (n, depth) => { flat.push({ n, depth }); nodes.filter(x => x.parent_id === n.id).forEach(k => walk(k, depth + 1)); };
+    roots.forEach(r => walk(r, 0));
+    const rowH = 44, pad = 12, w = 680, h = flat.length * rowH + pad * 2;
+    const els = flat.map(({ n, depth }, idx) => {
+      const x = 16 + Math.min(depth, 4) * 36;
+      const y = pad + idx * rowH;
+      const fill = n.gate_type === 'AND' ? '#C50F1F' : n.gate_type === 'OR' ? '#BC4B09' : '#1D4276';
+      const lbl = String(n.label || '').slice(0, 62) + ((n.label || '').length > 62 ? '…' : '');
+      const conn = depth > 0 ? `<path d="M ${x - 20} ${y - 8} V ${y + 17} H ${x}" fill="none" stroke="#94A3B8" stroke-width="1.6"/>` : '';
+      return `<g>${conn}
+        <rect x="${x}" y="${y}" width="${w - x - 16}" height="34" rx="6" fill="#FFFFFF" stroke="${n.is_verified ? '#0E700E' : '#CBD5E1'}" stroke-width="${n.is_verified ? 1.8 : 1.1}"/>
+        <rect x="${x + 6}" y="${y + 6}" width="48" height="22" rx="4" fill="${fill}"/>
+        <text x="${x + 30}" y="${y + 21}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#FFFFFF" font-family="system-ui,sans-serif">${esc(n.gate_type)}</text>
+        <text x="${x + 64}" y="${y + 21}" font-size="12" fill="#0F233C" font-family="system-ui,sans-serif">${esc(lbl)}</text>
+      </g>`;
+    }).join('');
+    return `<div class="card" style="padding:12px;margin-bottom:14px;overflow-x:auto"><svg viewBox="0 0 ${w} ${h}" style="width:100%;max-width:680px;height:auto;display:block" role="img" aria-label="Fault Tree diagram">${els}</svg></div>`;
+  })() : '';
+
   return `
   <div class="section-head">
     <div><h2 class="h3">Fault Tree Analysis (FTA)</h2><p>Map multi-causal AND / OR logic paths for protection, SCADA, or simultaneous failures</p></div>
     ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-fta" data-id="${i.id}">${icon('plus')} Add Top / Event</button>` : ''}
   </div>
+  ${ftaSvg}
   ${body}`;
 }
 
@@ -2262,11 +2285,31 @@ function tabBarriers(i) {
     </tr>`;
   }).join('') || `<tr><td colspan="4"><div class="empty"><strong>No barriers assessed yet</strong>Log the physical, SCADA/protection, LOTO, and supervisory barriers that were supposed to prevent this event.</div></td></tr>`;
 
+  const swissStrip = items.length ? `<div class="card card-pad" style="margin-bottom:14px;overflow-x:auto">
+    <div style="font-size:11.5px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Swiss-Cheese Defense Layers (Hazard → Incident)</div>
+    <div style="display:flex;align-items:center;gap:10px;min-width:max-content">
+      <span class="chip chip-amber">Hazard</span>
+      ${items.map(b => {
+        const isBad = b.status === 'failed' || b.status === 'missing';
+        const col = b.status === 'effective' ? '#0E700E' : b.status === 'degraded' ? '#BC4B09' : '#C50F1F';
+        const bg = b.status === 'effective' ? '#F1FAF1' : b.status === 'degraded' ? '#FDF6F3' : '#FDF3F4';
+        return `<span style="color:#94A3B8">→</span>
+          <div style="border:1.5px solid ${col};background:${bg};border-radius:6px;padding:8px 12px;min-width:130px;max-width:180px">
+            <div style="font-size:10.5px;font-weight:700;color:${col};text-transform:uppercase">${esc((BARRIER_STATUS[b.status] || {}).label || b.status)}${isBad ? ' (Hole)' : ''}</div>
+            <div style="font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.name)}</div>
+          </div>`;
+      }).join('')}
+      <span style="color:#94A3B8">→</span>
+      <span class="chip chip-red">Event</span>
+    </div>
+  </div>` : '';
+
   return `
   <div class="section-head">
     <div><h2 class="h3">Barrier Analysis (Swiss-Cheese Model)</h2><p>${counts.failed} failed · ${counts.missing} missing · ${counts.degraded} degraded · ${counts.effective} effective</p></div>
     ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-barrier" data-id="${i.id}">${icon('plus')} Add barrier</button>` : ''}
   </div>
+  ${swissStrip}
   <div class="card table-scroll"><table class="table">
     <thead><tr><th>Barrier Type</th><th>Barrier &amp; Gap / Failure Mode</th><th>Status</th><th class="no-print" style="width:160px"></th></tr></thead>
     <tbody>${rows}</tbody>
@@ -2307,6 +2350,7 @@ function tabFmea(i) {
     <div><h2 class="h3">Failure mode &amp; effects analysis</h2><p>RPN = Severity × Occurrence × Detection · ≥100 triggers a corrective action</p></div>
     ${editable ? `<button class="btn btn-sm" data-action="add-fmea" data-id="${i.id}">${icon('plus')} Add failure mode</button>` : ''}
   </div>
+  ${items.length ? renderFmeaChartSvg(items) : ''}
   <div class="card table-scroll">
     <table class="table table-wide">
       <thead><tr>
@@ -3053,17 +3097,17 @@ function rcaForm(i) {
       </div>
       <div class="form-grid">
         ${field('Site / Location', select('site_id', siteOpts, d.site_id || defaultSiteId))}
-        ${field('Document ID', `<input class="input mono" name="document_code" value="${esc(d.document_code)}" ${isNew ? 'data-auto-doc="1"' : ''} oninput="this.removeAttribute('data-auto-doc')" required>`, 'Linked to site code · duplicates are blocked.')}
+        ${field('Document ID *', `<input class="input mono" name="document_code" value="${esc(d.document_code)}" ${isNew ? 'data-auto-doc="1"' : ''} oninput="this.removeAttribute('data-auto-doc')" required>`, 'Linked to site code · duplicates are blocked.')}
       </div>
       <div class="form-grid">
         <div class="field col-span-2">
-          <label>Title</label>
-          <input class="input" name="title" value="${esc(d.title)}" placeholder="e.g. Centrifugal Pump P-104A Seal Failure" required>
+          <label>Title *</label>
+          <input class="input" name="title" value="${esc(d.title)}" placeholder="e.g. WTG-14 Pitch Converter Trip" required>
         </div>
       </div>
       <div class="form-grid">
-        ${field('Facility / Site Name', `<input class="input" name="facility_name" value="${esc(d.facility_name)}">`)}
-        ${field('Asset / Equipment Tag', `<input class="input" name="equipment_tag" value="${esc(d.equipment_tag)}" placeholder="e.g. PUMP-P104A">`)}
+        ${field(`Facility / Site Name${isNew ? ' *' : ''}`, `<input class="input" name="facility_name" value="${esc(d.facility_name)}" ${isNew ? 'required' : ''}>`)}
+        ${field(`Asset / Equipment Tag${isNew ? ' *' : ''}`, `<input class="input" name="equipment_tag" value="${esc(d.equipment_tag)}" placeholder="e.g. WTG-14 / CB-04" ${isNew ? 'required' : ''}>`)}
       </div>
       <div class="form-grid">
         ${field('Severity', select('severity', optsFrom(SEVERITY), d.severity))}
@@ -3074,12 +3118,12 @@ function rcaForm(i) {
         ${field('Fault category', select('fault_category', Object.entries(FAULT), d.fault_category))}
       </div>
       <div class="form-grid">
-        ${field('System / Operating Spec', `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="e.g. 400V 3-Phase / 45 kW">`)}
-        ${field('Incident date', `<input class="input" type="date" name="incident_date" value="${toDateInput(d.incident_date)}">`)}
+        ${field(`System / Operating Spec${isNew ? ' *' : ''}`, `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="e.g. 66 kV / 220 kV" ${isNew ? 'required' : ''}>`)}
+        ${field(`Incident date${isNew ? ' *' : ''}`, `<input class="input" type="date" name="incident_date" value="${toDateInput(d.incident_date)}" ${isNew ? 'required' : ''}>`)}
       </div>
       <div class="form-grid">
-        ${field('Investigator name', `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="e.g. Alex Morgan">`)}
-        ${field('Investigator role', `<input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="e.g. Reliability Engineer">`)}
+        ${field(`Investigator name${isNew ? ' *' : ''}`, `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="e.g. Alex Morgan" ${isNew ? 'required' : ''}>`)}
+        ${field(`Investigator role${isNew ? ' *' : ''}`, `<input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="e.g. Reliability Engineer" ${isNew ? 'required' : ''}>`)}
       </div>
       ${isGenImpactEnabled() ? (() => {
         const g = i ? getGenInvData(i.id) : {};
@@ -3092,22 +3136,22 @@ function rcaForm(i) {
       })() : ''}
       <div class="form-grid">
         <div class="field col-span-2">
-          <label>Problem statement</label>
-          <textarea class="textarea" name="problem_statement" placeholder="Concise statement of what deviated, where, and its operational impact…">${esc(d.problem_statement || '')}</textarea>
+          <label>Problem statement${isNew ? ' *' : ''}</label>
+          <textarea class="textarea" name="problem_statement" placeholder="Concise statement of what deviated, where, and its operational impact…" ${isNew ? 'required' : ''}>${esc(d.problem_statement || '')}</textarea>
         </div>
       </div>
       <div class="form-grid">
         <div class="field col-span-2">
-          <label>Executive summary</label>
-          <textarea class="textarea" name="executive_summary" placeholder="What happened, downtime or cost impact, and containment…">${esc(d.executive_summary)}</textarea>
+          <label>Executive summary${isNew ? ' *' : ''}</label>
+          <textarea class="textarea" name="executive_summary" placeholder="What happened, downtime or cost impact, and containment…" ${isNew ? 'required' : ''}>${esc(d.executive_summary)}</textarea>
         </div>
       </div>
-      <div class="form-grid">
+      ${!isNew ? `<div class="form-grid">
         <div class="field col-span-2">
           <label>Root cause conclusion</label>
           <textarea class="textarea" name="root_cause_conclusion" placeholder="Verified primary root cause…">${esc(d.root_cause_conclusion)}</textarea>
         </div>
-      </div>`,
+      </div>` : ''}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn btn-primary" data-action="save-rca" data-id="${i ? i.id : ''}">${icon('check')} ${isNew ? 'Create RCA' : 'Save changes'}</button>`,
   };
@@ -4290,7 +4334,31 @@ const ACTIONS = {
       return;
     }
     const v = collect(['site_id','document_code','title','facility_name','equipment_tag','asset_category','fault_category','voltage_class','severity','status','investigator_name','investigator_role','problem_statement','executive_summary','root_cause_conclusion']);
-    if (!v.title) { toast('A title is required'); return; }
+    if (!id) {
+      const reqFields = [
+        ['document_code', 'Document ID'],
+        ['title', 'Title'],
+        ['facility_name', 'Facility / Site Name'],
+        ['equipment_tag', 'Asset / Equipment Tag'],
+        ['voltage_class', 'System / Operating Spec'],
+        ['investigator_name', 'Investigator name'],
+        ['investigator_role', 'Investigator role'],
+        ['problem_statement', 'Problem statement'],
+        ['executive_summary', 'Executive summary'],
+      ];
+      for (const [fKey, fLabel] of reqFields) {
+        if (!String(v[fKey] || '').trim()) {
+          toast(`Please complete required field: ${fLabel}`);
+          document.querySelector(`#modalHost [name="${fKey}"]`)?.focus();
+          return;
+        }
+      }
+      if (!document.querySelector('#modalHost [name="incident_date"]')?.value) {
+        toast('Please complete required field: Incident date');
+        document.querySelector('#modalHost [name="incident_date"]')?.focus();
+        return;
+      }
+    } else if (!v.title) { toast('A title is required'); return; }
     v.document_code = (v.document_code || '').trim() || nextDocCodeForSite(v.site_id);
     const dupDoc = (DB.investigations || []).find(x => x.id !== id && String(x.document_code || '').trim().toLowerCase() === v.document_code.toLowerCase());
     if (dupDoc) {
