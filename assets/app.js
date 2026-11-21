@@ -1700,36 +1700,47 @@ let selectedIshVector = 'machine';
 
 function computeRcaJourney(i) {
   const m = getInvMethods(i.id);
+  const events = byInv('timeline_events', i.id);
   const whys = byInv('five_whys_nodes', i.id);
   const ish = byInv('ishikawa_causes', i.id);
+  const fta = getFtaNodes(i.id);
+  const barriers = getBarrierItems(i.id);
   const fmea = byInv('fmea_items', i.id);
   const capas = byInv('capa_actions', i.id);
 
   const hasScope = Boolean((i.executive_summary || '').trim() && (i.equipment_tag || '').trim());
+  const hasTimeline = !m.timeline || events.length >= 1;
   const maxWhyLevel = whys.reduce((mLvl, n) => Math.max(mLvl, Number(n.level) || 1), 0);
   const rootWhys = whys.filter(n => n.is_root_cause);
   const whysManualDone = isWhysConcluded(i.id);
   const hasWhys = !m.whys || whysManualDone || (maxWhyLevel >= 3 && rootWhys.length >= 1);
   const distinctVectors = new Set(ish.map(c => c.vector)).size;
   const hasIsh = !m.ishikawa || distinctVectors >= 3;
+  const hasFta = !m.fault_tree || fta.length >= 1;
+  const hasBarriers = !m.barriers || barriers.length >= 1;
   const highRpnItems = fmea.filter(f => rpnOf(f) >= 100);
   const hasFmea = !m.fmea || fmea.length >= 1;
   const hasCapa = capas.length >= 1 && (highRpnItems.length === 0 || capas.length >= Math.min(2, highRpnItems.length));
   const hasConclusion = Boolean((i.root_cause_conclusion || '').trim()) && (i.status === 'inReview' || i.status === 'closed');
 
   const rawSteps = [
-    { key: 'overview', label: 'Scope & Asset', done: hasScope, enabled: true },
-    { key: 'whys',     label: '5 Whys',        done: hasWhys,  enabled: m.whys },
-    { key: 'ishikawa', label: 'Ishikawa 6M',   done: hasIsh,   enabled: m.ishikawa },
-    { key: 'fmea',     label: 'FMEA Risk',     done: hasFmea,  enabled: m.fmea },
-    { key: 'capa',     label: 'CAPA Plan',     done: hasCapa,  enabled: true },
-    { key: 'report',   label: 'Conclusion',    done: hasConclusion, enabled: true },
+    { key: 'overview',   label: 'Scope & Asset', done: hasScope,      enabled: true },
+    { key: 'timeline',   label: 'Timeline',      done: hasTimeline,   enabled: m.timeline },
+    { key: 'whys',       label: '5 Whys',        done: hasWhys,       enabled: m.whys },
+    { key: 'ishikawa',   label: 'Ishikawa 6M',   done: hasIsh,        enabled: m.ishikawa },
+    { key: 'fault_tree', label: 'Fault Tree',    done: hasFta,        enabled: m.fault_tree },
+    { key: 'barriers',   label: 'Barriers',      done: hasBarriers,   enabled: m.barriers },
+    { key: 'fmea',       label: 'FMEA Risk',     done: hasFmea,       enabled: m.fmea },
+    { key: 'capa',       label: 'CAPA Plan',     done: hasCapa,       enabled: true },
+    { key: 'report',     label: 'Conclusion',    done: hasConclusion, enabled: true },
   ];
   const steps = rawSteps.filter(s => s.enabled).map((s, idx) => ({ ...s, num: idx + 1 }));
 
   let next = null;
   if (!hasScope) {
     next = { tab: 'overview', action: 'edit-rca', text: 'Document the equipment tag and executive summary (what happened and what was curtailed) to anchor the investigation.', cta: 'Complete scope' };
+  } else if (!hasTimeline) {
+    next = { tab: 'timeline', action: 'add-timeline', text: 'Log key Sequence of Events (SOE / SCADA) timestamps to establish what happened and when.', cta: 'Add timeline event' };
   } else if (m.whys && whys.length === 0) {
     next = { tab: 'whys', action: 'add-why', text: 'Start your 5 Whys chain at Level 1: ask what directly triggered the trip or failure.', cta: 'Start 5 Whys' };
   } else if (!hasWhys && maxWhyLevel >= 5 && rootWhys.length === 0) {
@@ -1738,6 +1749,10 @@ function computeRcaJourney(i) {
     next = { tab: 'whys', action: null, text: `You are at Why Level ${maxWhyLevel} with ${rootWhys.length} verified root cause(s). Drill down to Level 3–5 until you uncover the systemic or process gap.`, cta: 'Open 5 Whys' };
   } else if (!hasIsh) {
     next = { tab: 'ishikawa', action: null, text: `You have ${distinctVectors} of 6 Ishikawa vectors populated. Check at least 3 vectors (Man, Machine, Material, Method, Measurement, Milieu) so no contributing factor is missed.`, cta: 'Explore 6M vectors' };
+  } else if (!hasFta) {
+    next = { tab: 'fault_tree', action: 'add-fta', text: 'Map the Fault Tree (AND / OR gates) for simultaneous or logic-based failure paths.', cta: 'Add Fault Tree event' };
+  } else if (!hasBarriers) {
+    next = { tab: 'barriers', action: 'add-barrier', text: 'Assess the Swiss-Cheese defense barriers (physical, SCADA/protection, LOTO, supervision) that failed or were missing.', cta: 'Add barrier' };
   } else if (!hasFmea) {
     next = { tab: 'fmea', action: 'add-fmea', text: 'Score the failure modes in FMEA (Severity × Occurrence × Detection) to quantify risk priority.', cta: 'Score FMEA' };
   } else if (!hasCapa) {
@@ -1779,7 +1794,7 @@ function viewRca(id, tab) {
           : `<button class="btn btn-primary btn-sm" data-tab="${journey.next.tab}">${esc(journey.next.cta)}</button>`}
       </div>`
     : `<div class="coach-banner complete">
-        <div class="coach-text"><strong>Investigation complete:</strong> All 6 RCA stages are verified and ready for audit export.</div>
+        <div class="coach-text"><strong>Investigation complete:</strong> All ${journey.steps.length} enabled RCA stages are verified and ready for audit export.</div>
         <button class="btn btn-sm" data-tab="report">${icon('print')} Review report</button>
       </div>`;
 
@@ -1813,7 +1828,7 @@ function viewRca(id, tab) {
 
   <div class="journey no-print">
     <div class="journey-head">
-      <div class="journey-title">Guided RCA progression <span class="chip chip-accent">${journey.doneCount} / 6 stages complete</span></div>
+      <div class="journey-title">Guided RCA progression <span class="chip chip-accent">${journey.doneCount} / ${journey.steps.length} stages complete</span></div>
     </div>
     <div class="journey-steps">${stepHtml}</div>
     ${coachHtml}
