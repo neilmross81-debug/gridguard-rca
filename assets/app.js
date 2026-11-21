@@ -3482,6 +3482,7 @@ const ACTIONS = {
     render();
     toast(`Account @${uname} created`);
   },
+  'oauth-login': (el) => oauthSignIn(el.dataset.provider),
   'login': () => {
     const form = document.getElementById('loginForm');
     if (!form) return;
