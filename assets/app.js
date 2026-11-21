@@ -162,13 +162,24 @@ const TIMELINE_CAT = {
 };
 
 const TAB_LABELS = [
-  ['overview',  'Overview'],
-  ['timeline',  'Timeline'],
-  ['whys',      '5 Whys'],
-  ['ishikawa',  'Ishikawa 6M'],
-  ['fmea',      'FMEA'],
-  ['capa',      'CAPA Plan'],
-  ['report',    'Report'],
+  ['overview',   'Overview'],
+  ['timeline',   'Timeline'],
+  ['whys',       '5 Whys'],
+  ['ishikawa',   'Ishikawa 6M'],
+  ['fault_tree', 'Fault Tree'],
+  ['barriers',   'Barriers'],
+  ['fmea',       'FMEA'],
+  ['capa',       'CAPA Plan'],
+  ['report',     'Report'],
+];
+
+const RCA_TOGGLE_METHODS = [
+  ['timeline',   'Timeline / SOE'],
+  ['whys',       '5 Whys'],
+  ['ishikawa',   'Ishikawa 6M'],
+  ['fault_tree', 'Fault Tree (FTA)'],
+  ['barriers',   'Barrier Analysis'],
+  ['fmea',       'FMEA Risk'],
 ];
 
 /* ---------- helpers ---------- */
@@ -314,6 +325,54 @@ function nextDocCodeForSite(siteId) {
   });
   while (existing.has(`${prefix}${String(seq).padStart(3, '0')}`)) seq++;
   return `${prefix}${String(seq).padStart(3, '0')}`;
+}
+
+function getInvMethods(invId) {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  const map = (s.inv_methods && typeof s.inv_methods === 'object') ? s.inv_methods : {};
+  const saved = map[invId];
+  const out = {};
+  RCA_TOGGLE_METHODS.forEach(([k]) => {
+    out[k] = saved && saved[k] !== undefined ? Boolean(saved[k]) : true;
+  });
+  return out;
+}
+
+function isMethodEnabled(invId, key) {
+  if (['overview', 'capa', 'report'].includes(key)) return true;
+  return getInvMethods(invId)[key] !== false;
+}
+
+function setInvMethod(invId, key, val) {
+  if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
+  if (!DB.app_settings.inv_methods || typeof DB.app_settings.inv_methods !== 'object') DB.app_settings.inv_methods = {};
+  const cur = getInvMethods(invId);
+  cur[key] = Boolean(val);
+  DB.app_settings.inv_methods[invId] = cur;
+}
+
+function getFtaNodes(invId) {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  const map = (s.fault_trees && typeof s.fault_trees === 'object') ? s.fault_trees : {};
+  return Array.isArray(map[invId]) ? map[invId] : [];
+}
+
+function setFtaNodes(invId, nodes) {
+  if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
+  if (!DB.app_settings.fault_trees || typeof DB.app_settings.fault_trees !== 'object') DB.app_settings.fault_trees = {};
+  DB.app_settings.fault_trees[invId] = nodes;
+}
+
+function getBarrierItems(invId) {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  const map = (s.barrier_items && typeof s.barrier_items === 'object') ? s.barrier_items : {};
+  return Array.isArray(map[invId]) ? map[invId] : [];
+}
+
+function setBarrierItems(invId, items) {
+  if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
+  if (!DB.app_settings.barrier_items || typeof DB.app_settings.barrier_items !== 'object') DB.app_settings.barrier_items = {};
+  DB.app_settings.barrier_items[invId] = items;
 }
 
 function getAuditLogs(invId) {
@@ -1683,7 +1742,9 @@ function viewRca(id, tab) {
   const editable = canEditInv(i);
   const site = siteById(i.site_id);
   const journey = computeRcaJourney(i);
-  const tabs = TAB_LABELS.map(([k, l]) => `<button class="tab ${tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('');
+  const visibleTabs = TAB_LABELS.filter(([k]) => isMethodEnabled(i.id, k));
+  const activeTab = visibleTabs.some(([k]) => k === tab) ? tab : 'overview';
+  const tabs = visibleTabs.map(([k, l]) => `<button class="tab ${activeTab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('');
 
   const stepHtml = journey.steps.map(s => {
     const cls = s.done ? 'done' : (tab === s.key ? 'active' : '');
@@ -1742,16 +1803,18 @@ function viewRca(id, tab) {
   </div>
 
   <div class="tabs" id="tabs">${tabs}</div>
-  <div id="tabBody">${tabBody(i, tab)}</div>`;
+  <div id="tabBody">${tabBody(i, activeTab)}</div>`;
 }
 
 function tabBody(i, tab) {
-  if (tab === 'timeline') return tabTimeline(i);
-  if (tab === 'whys')     return tabWhys(i);
-  if (tab === 'ishikawa') return tabIshikawa(i);
-  if (tab === 'fmea')     return tabFmea(i);
-  if (tab === 'capa')     return tabCapa(i);
-  if (tab === 'report')   return tabReport(i);
+  if (tab === 'timeline')   return tabTimeline(i);
+  if (tab === 'whys')       return tabWhys(i);
+  if (tab === 'ishikawa')   return tabIshikawa(i);
+  if (tab === 'fault_tree') return tabFaultTree(i);
+  if (tab === 'barriers')   return tabBarriers(i);
+  if (tab === 'fmea')       return tabFmea(i);
+  if (tab === 'capa')       return tabCapa(i);
+  if (tab === 'report')     return tabReport(i);
   return tabOverview(i);
 }
 
@@ -1781,6 +1844,12 @@ function capaSourceInfo(c) {
   if (area === 'timeline') {
     const t = (DB.timeline_events || []).find(x => x.id === recId);
     return { tab: 'timeline', label: 'Timeline', detail: t ? t.title : '', tone: 'slate' };
+  }
+  if (area === 'fta') {
+    return { tab: 'fault_tree', label: 'Fault Tree', detail: '', tone: 'red' };
+  }
+  if (area === 'barrier') {
+    return { tab: 'barriers', label: 'Barrier Analysis', detail: '', tone: 'amber' };
   }
   if (area === 'overview') {
     return { tab: 'overview', label: 'Overview', detail: '', tone: 'slate' };
@@ -1953,8 +2022,10 @@ function tabWhys(i) {
         <strong>Ishikawa 6M</strong> (separate Machine, Method, Measurement, Man, Material &amp; Milieu), <strong>Fault Tree / Barrier Analysis</strong> (simultaneous protection/LOTO failures), or splitting separate events in the <strong>Timeline</strong>.
       </div>
       <div class="chip-row">
-        <button class="btn btn-sm" data-tab="ishikawa">Switch to Ishikawa 6M →</button>
-        <button class="btn btn-sm" data-tab="timeline">Review Timeline →</button>
+        <button class="btn btn-sm" data-action="enable-method-tab" data-id="${i.id}" data-method="ishikawa">${isMethodEnabled(i.id, 'ishikawa') ? 'Switch to Ishikawa 6M →' : 'Enable &amp; Open Ishikawa 6M →'}</button>
+        <button class="btn btn-sm" data-action="enable-method-tab" data-id="${i.id}" data-method="fault_tree">${isMethodEnabled(i.id, 'fault_tree') ? 'Open Fault Tree →' : 'Enable &amp; Open Fault Tree →'}</button>
+        <button class="btn btn-sm" data-action="enable-method-tab" data-id="${i.id}" data-method="barriers">${isMethodEnabled(i.id, 'barriers') ? 'Open Barrier Analysis →' : 'Enable &amp; Open Barrier Analysis →'}</button>
+        <button class="btn btn-sm" data-action="enable-method-tab" data-id="${i.id}" data-method="timeline">${isMethodEnabled(i.id, 'timeline') ? 'Review Timeline →' : 'Enable &amp; Review Timeline →'}</button>
       </div>
     </div>` : '';
 
@@ -2091,6 +2162,93 @@ function tabIshikawa(i) {
   ${renderFishboneSvg(i, causes)}
   ${drawer}
   <div class="ish-grid">${groups}</div>`;
+}
+
+function tabFaultTree(i) {
+  const editable = canEditInv(i);
+  const nodes = getFtaNodes(i.id);
+  const roots = nodes.filter(n => !n.parent_id);
+  const gateBadge = (g) => {
+    if (g === 'AND') return chip('AND Gate', 'red');
+    if (g === 'OR')  return chip('OR Gate', 'amber');
+    return chip('Basic Event', 'slate');
+  };
+  const renderNode = (n, depth = 0) => {
+    const kids = nodes.filter(x => x.parent_id === n.id);
+    const linked = renderLinkedCapas(i.id, `fta:${n.id}`);
+    return `<div class="why ${n.is_verified ? 'root' : ''}" style="margin-left:${Math.min(depth, 4) * 24}px">
+      <div class="why-head">
+        ${gateBadge(n.gate_type)}
+        ${n.is_verified ? chip('Verified', 'green') : ''}
+        ${editable ? `<div style="margin-left:auto" class="chip-row no-print">
+          <button class="btn btn-ghost btn-sm" data-action="add-fta" data-id="${i.id}" data-parent="${n.id}">${icon('plus')} Sub-Event</button>
+          <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="fta:${n.id}" data-type="preventive" data-desc="${esc(`[Fault Tree] ${n.label}`)}">${icon('plus')} CAPA</button>
+          <button class="btn btn-ghost btn-sm" data-action="edit-fta" data-id="${i.id}" data-fta="${n.id}">${icon('edit')}</button>
+          <button class="btn btn-ghost btn-sm" data-action="del-fta" data-id="${i.id}" data-fta="${n.id}">${icon('trash')}</button>
+        </div>` : ''}
+      </div>
+      <div class="why-q">${esc(n.label)}</div>
+      ${n.notes ? `<div class="why-a">${esc(n.notes)}</div>` : ''}
+      ${linked}
+    </div>${kids.map(k => renderNode(k, depth + 1)).join('')}`;
+  };
+
+  const body = roots.map(r => renderNode(r, 0)).join('')
+    || `<div class="empty"><strong>No Fault Tree built yet</strong>Start with the Top Event (e.g. "${esc(i.title)}") and break it down using <strong>AND</strong> (all required) and <strong>OR</strong> (any sufficient) logic gates.</div>`;
+
+  return `
+  <div class="section-head">
+    <div><h2 class="h3">Fault Tree Analysis (FTA)</h2><p>Map multi-causal AND / OR logic paths for protection, SCADA, or simultaneous failures</p></div>
+    ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-fta" data-id="${i.id}">${icon('plus')} Add Top / Event</button>` : ''}
+  </div>
+  ${body}`;
+}
+
+const BARRIER_TYPES = {
+  physical:   'Physical / Engineered',
+  control:    'Control / SCADA / Protection',
+  procedural: 'Procedural / LOTO / PTW',
+  human:      'Human / Supervision',
+};
+const BARRIER_STATUS = {
+  effective: { label: 'Effective',        tone: 'green' },
+  degraded:  { label: 'Degraded',         tone: 'amber' },
+  failed:    { label: 'Failed / Bypassed',tone: 'red' },
+  missing:   { label: 'Missing',          tone: 'red' },
+};
+
+function tabBarriers(i) {
+  const editable = canEditInv(i);
+  const items = getBarrierItems(i.id);
+  const counts = {
+    failed: items.filter(b => b.status === 'failed').length,
+    missing: items.filter(b => b.status === 'missing').length,
+    degraded: items.filter(b => b.status === 'degraded').length,
+    effective: items.filter(b => b.status === 'effective').length,
+  };
+  const rows = items.map(b => {
+    const st = BARRIER_STATUS[b.status] || { label: b.status, tone: 'slate' };
+    return `<tr>
+      <td><span class="chip chip-slate">${esc(BARRIER_TYPES[b.barrier_type] || b.barrier_type)}</span></td>
+      <td><strong>${esc(b.name)}</strong>${b.failure_reason ? `<div class="dim" style="font-size:12.5px;margin-top:4px">${esc(b.failure_reason)}</div>` : ''}${renderLinkedCapas(i.id, `barrier:${b.id}`)}</td>
+      <td>${chip(st.label, st.tone)}</td>
+      <td class="no-print">${editable ? `<div class="chip-row">
+        <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="barrier:${b.id}" data-type="preventive" data-desc="${esc(`[Barrier: ${b.name}] ${b.failure_reason || 'Strengthen barrier'}`)}">${icon('plus')} CAPA</button>
+        <button class="btn btn-ghost btn-sm" data-action="edit-barrier" data-id="${i.id}" data-barrier="${b.id}">${icon('edit')}</button>
+        <button class="btn btn-ghost btn-sm" data-action="del-barrier" data-id="${i.id}" data-barrier="${b.id}">${icon('trash')}</button>
+      </div>` : ''}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="4"><div class="empty"><strong>No barriers assessed yet</strong>Log the physical, SCADA/protection, LOTO, and supervisory barriers that were supposed to prevent this event.</div></td></tr>`;
+
+  return `
+  <div class="section-head">
+    <div><h2 class="h3">Barrier Analysis (Swiss-Cheese Model)</h2><p>${counts.failed} failed · ${counts.missing} missing · ${counts.degraded} degraded · ${counts.effective} effective</p></div>
+    ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-barrier" data-id="${i.id}">${icon('plus')} Add barrier</button>` : ''}
+  </div>
+  <div class="card table-scroll"><table class="table">
+    <thead><tr><th>Barrier Type</th><th>Barrier &amp; Gap / Failure Mode</th><th>Status</th><th class="no-print" style="width:160px"></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
 function tabFmea(i) {
@@ -2889,6 +3047,22 @@ function rcaForm(i) {
           <label>Root cause conclusion</label>
           <textarea class="textarea" name="root_cause_conclusion" placeholder="Verified primary root cause…">${esc(d.root_cause_conclusion)}</textarea>
         </div>
+      </div>
+      <div class="form-grid">
+        <div class="field col-span-2" style="background:var(--bg-alt);padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--line)">
+          <label style="margin-bottom:6px">Analysis Methods Enabled for this RCA</label>
+          <div style="display:flex;flex-wrap:wrap;gap:12px">
+            ${(() => {
+              const m = i ? getInvMethods(i.id) : Object.fromEntries(RCA_TOGGLE_METHODS.map(([k]) => [k, true]));
+              return RCA_TOGGLE_METHODS.map(([k, lbl]) => `
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer">
+                  <input type="checkbox" name="method_${k}" ${m[k] ? 'checked' : ''}>
+                  <span>${esc(lbl)}</span>
+                </label>`).join('');
+            })()}
+          </div>
+          <div class="dim" style="font-size:11.5px;margin-top:6px">All methods are on by default. Uncheck any you don't need (e.g. show only 5 Whys) — you can re-enable them anytime.</div>
+        </div>
       </div>`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn btn-primary" data-action="save-rca" data-id="${i ? i.id : ''}">${icon('check')} ${isNew ? 'Create RCA' : 'Save changes'}</button>`,
@@ -3131,6 +3305,41 @@ function fmeaForm(invId, item) {
   };
 }
 
+function ftaForm(invId, node, parentId) {
+  const inv = invById(invId);
+  const d = node || { gate_type: parentId ? 'BASIC' : 'OR', label: (!node && !parentId && inv) ? inv.title : '', notes: '', is_verified: 0 };
+  const attrs = `data-id="${invId}" data-fta="${node ? node.id : ''}" data-parent="${parentId || (node && node.parent_id) || ''}"`;
+  return {
+    eyebrow: 'Fault Tree Analysis', title: node ? 'Edit Fault Tree Node' : 'Add Fault Tree Event / Gate',
+    body: `
+      <div class="form-grid">
+        ${field('Gate / Event Type', select('gate_type', [['OR', 'OR Gate (any child causes parent)'], ['AND', 'AND Gate (all children required)'], ['BASIC', 'Basic Event (root failure)']], d.gate_type))}
+        ${field('Verified?', select('is_verified', [[0, 'Hypothesis / Unverified'], [1, 'Verified']], d.is_verified ? 1 : 0))}
+      </div>
+      ${field('Event / Gate Description', `<input class="input" name="label" value="${esc(d.label)}" placeholder="e.g. Export Breaker Trip without Backup" required>`)}
+      ${field('Technical Notes / Evidence', `<textarea class="textarea" name="notes" placeholder="Relay logs, probability, or failure condition…">${esc(d.notes || '')}</textarea>`)}`,
+    foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn btn-primary" data-action="save-fta" ${attrs}>${icon('check')} Save</button>`,
+  };
+}
+
+function barrierForm(invId, item) {
+  const d = item || { barrier_type: 'physical', name: '', status: 'failed', failure_reason: '' };
+  const attrs = `data-id="${invId}" data-barrier="${item ? item.id : ''}"`;
+  return {
+    eyebrow: 'Barrier Analysis', title: item ? 'Edit Barrier' : 'Add Barrier',
+    body: `
+      <div class="form-grid">
+        ${field('Barrier Type', select('barrier_type', Object.entries(BARRIER_TYPES), d.barrier_type))}
+        ${field('Status', select('status', optsFrom(BARRIER_STATUS), d.status))}
+      </div>
+      ${field('Barrier Name', `<input class="input" name="name" value="${esc(d.name)}" placeholder="e.g. SF6 Low-Density Trip Interlock / LOTO Lock" required>`)}
+      ${field('How it failed, degraded, or was missing', `<textarea class="textarea" name="failure_reason" placeholder="Describe the gap or why the barrier did not stop the event…">${esc(d.failure_reason || '')}</textarea>`)}`,
+    foot: `<button class="btn" data-action="close-modal">Cancel</button>
+           <button class="btn btn-primary" data-action="save-barrier" ${attrs}>${icon('check')} Save</button>`,
+  };
+}
+
 function capaForm(invId, item, preset) {
   const inv = invById(invId);
   const editable = inv ? canEditInv(inv) : false;
@@ -3145,14 +3354,20 @@ function capaForm(invId, item, preset) {
   };
   const roots = byInv('five_whys_nodes', invId).filter(n => n.is_root_cause);
   const srcInfo = capaSourceInfo(d);
+  const linkOpts = [
+    ['', '— General / Unlinked CAPA —'],
+    [`overview:${invId}`, 'Overview (Investigation-level)'],
+    ...byInv('five_whys_nodes', invId).map(n => [`whys:${n.id}`, `5 Whys L${n.level}: ${(n.answer || n.question || '').slice(0, 58)}`]),
+    ...byInv('ishikawa_causes', invId).map(k => [`ishikawa:${k.id}`, `6M (${VECTOR[k.vector] || k.vector}): ${(k.cause || '').slice(0, 52)}`]),
+    ...getFtaNodes(invId).map(f => [`fta:${f.id}`, `Fault Tree (${f.gate_type}): ${(f.label || '').slice(0, 52)}`]),
+    ...getBarrierItems(invId).map(b => [`barrier:${b.id}`, `Barrier: ${(b.name || '').slice(0, 56)}`]),
+    ...byInv('fmea_items', invId).map(m => [`fmea:${m.id}`, `FMEA (RPN ${rpnOf(m)}): ${(m.failure_mode || m.component || '').slice(0, 50)}`]),
+    ...byInv('timeline_events', invId).map(t => [`timeline:${t.id}`, `Timeline: ${(t.title || '').slice(0, 56)}`]),
+  ];
   return {
     eyebrow: 'CAPA plan', title: !editable ? 'View action (read-only)' : (item ? 'Edit action' : 'Add action'), width: 'wide',
     body: `
-      <input type="hidden" name="source_ref" value="${esc(d.source_ref || '')}">
-      ${srcInfo ? `<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:12.5px">
-        <span class="dim">Linked from:</span> ${chip(srcInfo.label, srcInfo.tone)}
-        ${srcInfo.detail ? `<span class="muted">${esc(srcInfo.detail.slice(0, 90))}${srcInfo.detail.length > 90 ? '…' : ''}</span>` : ''}
-      </div>` : ''}
+      ${field('Linked RCA Item / Area', select('source_ref', linkOpts, d.source_ref || ''), srcInfo ? `Currently linked to ${srcInfo.label}` : 'Link this CAPA to a specific Why, 6M cause, Fault Tree node, Barrier, FMEA, or Timeline event.')}
       ${roots.length ? `<div class="prompt-box">
         <div class="prompt-box-title">Verified Root Cause(s) to address</div>
         <div style="font-size:12.5px;color:var(--ink-2)">${roots.map(r => `• ${esc(r.answer || r.question)}`).join('<br>')}</div>
@@ -4055,11 +4270,18 @@ const ACTIONS = {
         impact_cost: gVals.impact_cost || '',
       };
     };
+    const saveMethods = (targetId) => {
+      RCA_TOGGLE_METHODS.forEach(([k]) => {
+        const cb = document.querySelector(`#modalHost [name="method_${k}"]`);
+        if (cb) setInvMethod(targetId, k, cb.checked);
+      });
+    };
     if (id) {
       const i = invById(id);
       const oldStatus = i.status;
       Object.assign(i, v, { updated_at: new Date().toISOString() });
       saveGen(id);
+      saveMethods(id);
       recordAudit(id, 'Updated RCA', oldStatus !== v.status ? `Status: ${oldStatus} → ${v.status}` : 'Details updated');
       save(); sbUpsert('investigations', i); closeModal(); render(); toast('Investigation updated');
     } else {
@@ -4067,6 +4289,7 @@ const ACTIONS = {
       const rec = Object.assign({ id: nid, drive_share_url: null }, v, { updated_at: new Date().toISOString() });
       DB.investigations.push(rec);
       saveGen(nid);
+      saveMethods(nid);
       recordAudit(nid, 'Created RCA', v.document_code || v.title);
       save(); sbUpsert('investigations', rec); closeModal(); go(`#/investigations/${nid}/overview`); toast('Investigation created');
     }
@@ -4082,6 +4305,79 @@ const ACTIONS = {
     const savedNode = saveWhyFromModal(el);
     if (!savedNode) return;
     closeModal(); render(); toast('Why level saved');
+  },
+  'enable-method-tab': (el) => {
+    const invId = el.dataset.id;
+    const method = el.dataset.method;
+    if (!invId || !method) return;
+    if (!isMethodEnabled(invId, method)) {
+      setInvMethod(invId, method, true);
+      recordAudit(invId, 'Enabled Analysis Method', method);
+      save();
+    }
+    go(`#/investigations/${invId}/${method}`);
+  },
+  'add-fta': (el) => { if (requireEdit(el.dataset.id)) openModal(ftaForm(el.dataset.id, null, el.dataset.parent || null)); },
+  'edit-fta': (el) => {
+    const n = getFtaNodes(el.dataset.id).find(x => x.id === el.dataset.fta);
+    if (n && requireEdit(el.dataset.id)) openModal(ftaForm(el.dataset.id, n, n.parent_id));
+  },
+  'save-fta': (el) => {
+    const invId = el.dataset.id;
+    if (!requireEdit(invId)) return;
+    const v = collect(['gate_type', 'is_verified', 'label', 'notes']);
+    if (!v.label) { toast('A description is required'); return; }
+    v.is_verified = Number(v.is_verified) ? 1 : 0;
+    const list = getFtaNodes(invId).slice();
+    const ftaId = el.dataset.fta;
+    if (ftaId) {
+      const idx = list.findIndex(x => x.id === ftaId);
+      if (idx >= 0) list[idx] = Object.assign({}, list[idx], v);
+    } else {
+      list.push(Object.assign({ id: uid('fta'), parent_id: el.dataset.parent || null }, v));
+    }
+    setFtaNodes(invId, list);
+    save(); closeModal(); render(); toast('Fault Tree node saved');
+  },
+  'del-fta': (el) => {
+    const invId = el.dataset.id;
+    if (!requireEdit(invId)) return;
+    const list = getFtaNodes(invId);
+    const ids = [el.dataset.fta];
+    for (let k = 0; k < ids.length; k++) list.filter(n => n.parent_id === ids[k]).forEach(c => ids.push(c.id));
+    confirmDo(`Delete this Fault Tree node and ${ids.length - 1} sub-event(s)?`, () => {
+      setFtaNodes(invId, list.filter(n => !ids.includes(n.id)));
+      save(); render(); toast('Fault Tree node removed');
+    });
+  },
+  'add-barrier': (el) => { if (requireEdit(el.dataset.id)) openModal(barrierForm(el.dataset.id, null)); },
+  'edit-barrier': (el) => {
+    const b = getBarrierItems(el.dataset.id).find(x => x.id === el.dataset.barrier);
+    if (b && requireEdit(el.dataset.id)) openModal(barrierForm(el.dataset.id, b));
+  },
+  'save-barrier': (el) => {
+    const invId = el.dataset.id;
+    if (!requireEdit(invId)) return;
+    const v = collect(['barrier_type', 'status', 'name', 'failure_reason']);
+    if (!v.name) { toast('A barrier name is required'); return; }
+    const list = getBarrierItems(invId).slice();
+    const bId = el.dataset.barrier;
+    if (bId) {
+      const idx = list.findIndex(x => x.id === bId);
+      if (idx >= 0) list[idx] = Object.assign({}, list[idx], v);
+    } else {
+      list.push(Object.assign({ id: uid('bar') }, v));
+    }
+    setBarrierItems(invId, list);
+    save(); closeModal(); render(); toast('Barrier saved');
+  },
+  'del-barrier': (el) => {
+    const invId = el.dataset.id;
+    if (!requireEdit(invId)) return;
+    confirmDo('Delete this barrier assessment?', () => {
+      setBarrierItems(invId, getBarrierItems(invId).filter(b => b.id !== el.dataset.barrier));
+      save(); render(); toast('Barrier removed');
+    });
   },
   'ish-to-why': (el) => {
     const k = (DB.ishikawa_causes || []).find(x => x.id === el.dataset.ish);
