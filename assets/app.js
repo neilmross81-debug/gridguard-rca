@@ -3108,6 +3108,7 @@ function rcaForm(i) {
             })()}
           </div>
           <div class="dim" style="font-size:11.5px;margin-top:6px">All methods are on by default. Timeline / SOE &amp; 5 Whys are recommended as a minimum baseline.</div>
+          <div id="methodWarnHost" style="display:none;margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--amber-soft);border:1px solid #F4C790;font-size:12.5px;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"></div>
         </div>
       </div>
       <div class="form-grid">
@@ -4433,6 +4434,16 @@ const ACTIONS = {
     if (!savedNode) return;
     closeModal(); render(); toast('Why level saved');
   },
+  'confirm-disable-method': (el) => {
+    const cb = document.querySelector(`#modalHost input[name="${el.dataset.target}"]`);
+    if (cb) cb.checked = false;
+    const host = document.getElementById('methodWarnHost');
+    if (host) { host.style.display = 'none'; host.innerHTML = ''; }
+  },
+  'cancel-disable-method': () => {
+    const host = document.getElementById('methodWarnHost');
+    if (host) { host.style.display = 'none'; host.innerHTML = ''; }
+  },
   'mark-whys-done': (el) => {
     const invId = el.dataset.id;
     if (!requireEdit(invId)) return;
@@ -5525,9 +5536,16 @@ document.addEventListener('change', (e) => {
   }
   if (e.target.matches('#modalHost input[name="method_timeline"], #modalHost input[name="method_whys"]')) {
     if (!e.target.checked) {
+      e.target.checked = true;
       const label = e.target.name === 'method_timeline' ? 'Timeline / SOE' : '5 Whys';
-      if (!window.confirm(`${label} is recommended as a minimum baseline for every RCA (Timeline / SOE & 5 Whys).\n\nAre you sure you want to turn ${label} off?`)) {
-        e.target.checked = true;
+      const host = document.getElementById('methodWarnHost');
+      if (host) {
+        host.style.display = 'flex';
+        host.innerHTML = `<span><strong>Recommended baseline:</strong> ${esc(label)} should normally remain enabled. Turn ${esc(label)} off anyway?</span>
+          <div class="chip-row">
+            <button type="button" class="btn btn-sm" data-action="cancel-disable-method">Keep Enabled</button>
+            <button type="button" class="btn btn-danger btn-sm" data-action="confirm-disable-method" data-target="${esc(e.target.name)}">Turn Off</button>
+          </div>`;
       }
     }
     return;
@@ -5573,9 +5591,16 @@ document.addEventListener('change', (e) => {
   }
   if (e.target.matches('#modalHost input[name="method_timeline"], #modalHost input[name="method_whys"]')) {
     if (!e.target.checked) {
+      e.target.checked = true;
       const label = e.target.name === 'method_timeline' ? 'Timeline / SOE' : '5 Whys';
-      if (!window.confirm(`${label} is recommended as a minimum baseline for every RCA (Timeline / SOE & 5 Whys).\n\nAre you sure you want to turn ${label} off?`)) {
-        e.target.checked = true;
+      const host = document.getElementById('methodWarnHost');
+      if (host) {
+        host.style.display = 'flex';
+        host.innerHTML = `<span><strong>Recommended baseline:</strong> ${esc(label)} should normally remain enabled. Turn ${esc(label)} off anyway?</span>
+          <div class="chip-row">
+            <button type="button" class="btn btn-sm" data-action="cancel-disable-method">Keep Enabled</button>
+            <button type="button" class="btn btn-danger btn-sm" data-action="confirm-disable-method" data-target="${esc(e.target.name)}">Turn Off</button>
+          </div>`;
       }
     }
     return;
