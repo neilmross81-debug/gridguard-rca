@@ -997,6 +997,77 @@ let landingMode = 'login';
 let landingSuccessMsg = '';
 let landingPrefill = null;
 
+async function oauthSignIn(provider) {
+  const { url } = getSupabaseCfg();
+  if (!url) {
+    toast('Connect a Supabase project in Settings first to use social login');
+    return;
+  }
+  const redirectTo = window.location.origin + window.location.pathname;
+  const authUrl = `${url}/auth/v1/authorize?provider=${encodeURIComponent(provider)}&redirect_to=${encodeURIComponent(redirectTo)}`;
+  if (window.TotalRCANative && window.TotalRCANative.isNative()) {
+    window.open(authUrl, '_system');
+    return;
+  }
+  window.location.href = authUrl;
+}
+
+async function handleOAuthCallback() {
+  const hash = window.location.hash || '';
+  if (!hash.includes('access_token=')) return false;
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const accessToken = params.get('access_token');
+  if (!accessToken) return false;
+
+  const { url, key } = getSupabaseCfg();
+  if (!url || !key) return false;
+
+  try {
+    const res = await fetch(`${url}/auth/v1/user`, {
+      headers: { apikey: key, Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) throw new Error('OAuth user lookup failed');
+    const authUser = await res.json();
+    const email = String(authUser.email || authUser.user_metadata?.email || authUser.user_metadata?.user_name || authUser.id || '').trim().toLowerCase();
+    if (!email) throw new Error('No email returned from provider');
+
+    const fullName = authUser.user_metadata?.full_name || authUser.user_metadata?.name || authUser.user_metadata?.user_name || email.split('@')[0];
+    const providerName = authUser.app_metadata?.provider || 'oauth';
+
+    let appUser = (DB.app_users || []).find(u =>
+      String(u.username || '').toLowerCase() === email ||
+      String(u.id || '') === `usr-oauth-${authUser.id}`
+    );
+    if (!appUser) {
+      const defaultSiteId = (DB.sites && DB.sites[0] && DB.sites[0].id) || 'site-osp1';
+      appUser = {
+        id: `usr-oauth-${String(authUser.id || uid('u')).slice(0, 24)}`,
+        username: email,
+        password: '',
+        full_name: fullName,
+        role_title: `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} User`,
+        is_global_admin: 0,
+        site_roles: { [defaultSiteId]: 'editor' },
+        assigned_rcas: [],
+      };
+      if (!Array.isArray(DB.app_users)) DB.app_users = [];
+      DB.app_users.push(appUser);
+      save();
+      await sbUpsert('app_users', appUser);
+    }
+
+    setSession(appUser.id);
+    history.replaceState(null, '', window.location.pathname + window.location.search + '#/');
+    render();
+    toast(`Signed in as ${appUser.full_name || email}`);
+    return true;
+  } catch (err) {
+    history.replaceState(null, '', window.location.pathname + window.location.search + '#/');
+    toast(err.message || 'Social sign-in failed');
+    return false;
+  }
+}
+
 function viewLanding() {
   const isReg = landingMode === 'register';
   const preUser = landingPrefill ? landingPrefill.username : 'demo';
@@ -1069,6 +1140,26 @@ function viewLanding() {
             <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="admin" data-pass="demo">Admin</button>
           </div>
         `}
+
+        <div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px">
+          <div style="flex:1;height:1px;background:var(--line)"></div>
+          <span class="dim" style="font-size:12px">or continue with</span>
+          <div style="flex:1;height:1px;background:var(--line)"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <button type="button" class="btn btn-sm" style="justify-content:center" data-action="oauth-login" data-provider="google">
+            <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.8-5.5 3.8-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.3 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12Z"/></svg>
+            Google
+          </button>
+          <button type="button" class="btn btn-sm" style="justify-content:center" data-action="oauth-login" data-provider="azure">
+            <svg viewBox="0 0 24 24" style="width:15px;height:15px"><rect x="2" y="2" width="9" height="9" fill="#F25022"/><rect x="13" y="2" width="9" height="9" fill="#7FBA00"/><rect x="2" y="13" width="9" height="9" fill="#00A4EF"/><rect x="13" y="13" width="9" height="9" fill="#FFB900"/></svg>
+            Microsoft
+          </button>
+          <button type="button" class="btn btn-sm" style="justify-content:center" data-action="oauth-login" data-provider="github">
+            <svg viewBox="0 0 24 24" style="width:15px;height:15px" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12c0 4.4 2.9 8.2 6.8 9.5.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 22 12c0-5.5-4.5-10-10-10Z"/></svg>
+            GitHub
+          </button>
+        </div>
       </div>
 
       <div class="landing-features">
@@ -4598,4 +4689,4 @@ if (window.TotalRCANative) {
     },
   });
 }
-syncFromSupabase(false);
+syncFromSupabase(false).then(() => handleOAuthCallback());
