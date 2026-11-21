@@ -5178,7 +5178,7 @@ function methodGuideModal() {
     toast('Building PowerPoint deck…');
     try {
       const pptx = new window.PptxGenJS();
-      pptx.layout = 'LAYOUT_16x9';
+      pptx.layout = 'LAYOUT_WIDE';
       pptx.author = i.investigator_name || APP_NAME;
       pptx.title = `${i.document_code || 'RCA'} — ${i.title}`;
 
