@@ -4962,7 +4962,9 @@ function methodGuideModal() {
           clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
           clone.setAttribute('width', String(w));
           clone.setAttribute('height', String(h));
-          const svgStr = new XMLSerializer().serializeToString(clone);
+          const cs = getComputedStyle(document.documentElement);
+          let svgStr = new XMLSerializer().serializeToString(clone);
+          svgStr = svgStr.replace(/var\((--[a-zA-Z0-9_-]+)\)/g, (_, name) => cs.getPropertyValue(name).trim() || '#1D4276');
           const url = URL.createObjectURL(new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' }));
           const img = await new Promise((resolve, reject) => {
             const im = new Image();
@@ -5022,7 +5024,7 @@ function methodGuideModal() {
       }) : null;
 
       const children = [
-        new Paragraph({ children: [new TextRun({ text: 'TOTALRCA — ENGINEERING ROOT CAUSE REPORT', bold: true, color: '0078D4', size: 20 })], spacing: { after: 80 } }),
+        new Paragraph({ children: [new TextRun({ text: `${APP_NAME.toUpperCase()} — ENGINEERING ROOT CAUSE REPORT`, bold: true, color: IS_RWE_WEB ? '1D4276' : '0078D4', size: 20 })], spacing: { after: 80 } }),
         new Paragraph({ text: i.title || 'Root Cause Analysis', heading: HeadingLevel.TITLE, spacing: { after: 160 } }),
         makeTable(['Field', 'Value'], [
           ['Document ID', i.document_code || '—'],
