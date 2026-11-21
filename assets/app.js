@@ -298,6 +298,24 @@ function calcGenImpact(inv) {
   return { hours, mwh, cost, currency: getGenCurrency(), isOverrideMwh: hasMwh, isOverrideCost: hasCost, formula: f };
 }
 
+function nextDocCodeForSite(siteId) {
+  const site = siteById(siteId);
+  const code = ((site && site.code) || 'SITE').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'SITE';
+  const year = new Date().getFullYear();
+  const prefix = `RCA-${year}-${code}-`;
+  const existing = new Set((DB.investigations || []).map(x => String(x.document_code || '').trim().toUpperCase()));
+  let seq = 1;
+  (DB.investigations || []).forEach(x => {
+    const dc = String(x.document_code || '').trim().toUpperCase();
+    if (dc.startsWith(prefix)) {
+      const n = parseInt(dc.slice(prefix.length), 10);
+      if (!isNaN(n) && n >= seq) seq = n + 1;
+    }
+  });
+  while (existing.has(`${prefix}${String(seq).padStart(3, '0')}`)) seq++;
+  return `${prefix}${String(seq).padStart(3, '0')}`;
+}
+
 function getAuditLogs(invId) {
   const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
   const map = (s.audit_logs && typeof s.audit_logs === 'object') ? s.audit_logs : {};
@@ -2755,7 +2773,7 @@ function rcaForm(i) {
   const defaultSite = siteById(defaultSiteId);
   const d = i || {
     site_id: defaultSiteId,
-    document_code: `RCA-${new Date().getFullYear()}-${(defaultSite?.code || 'FAC1').replace(/[^A-Z0-9]/gi, '')}-${String(DB.investigations.length + 1).padStart(3, '0')}`,
+    document_code: nextDocCodeForSite(defaultSiteId),
     title: '', facility_name: defaultSite ? defaultSite.name : 'Main Operations Facility', asset_category: 'pumpCompressor',
     equipment_tag: '', voltage_class: defaultSite ? defaultSite.voltage_class : '', severity: 'major', fault_category: 'mechanical', status: 'inProgress',
     incident_date: new Date().toISOString(), investigator_name: '', investigator_role: '', problem_statement: '', executive_summary: '',
@@ -2777,7 +2795,7 @@ function rcaForm(i) {
       </div>` : ''}
       <div class="form-grid">
         ${field('Site / Location', select('site_id', siteOpts, d.site_id || defaultSiteId))}
-        ${field('Document ID', `<input class="input" name="document_code" value="${esc(d.document_code)}" required>`)}
+        ${field('Document ID', `<input class="input mono" name="document_code" value="${esc(d.document_code)}" ${isNew ? 'data-auto-doc="1"' : ''} oninput="this.removeAttribute('data-auto-doc')" required>`, 'Linked to site code · duplicates are blocked.')}
       </div>
       <div class="form-grid">
         <div class="field col-span-2">
@@ -3961,6 +3979,13 @@ const ACTIONS = {
     }
     const v = collect(['site_id','document_code','title','facility_name','equipment_tag','asset_category','fault_category','voltage_class','severity','status','investigator_name','investigator_role','problem_statement','executive_summary','root_cause_conclusion']);
     if (!v.title) { toast('A title is required'); return; }
+    v.document_code = (v.document_code || '').trim() || nextDocCodeForSite(v.site_id);
+    const dupDoc = (DB.investigations || []).find(x => x.id !== id && String(x.document_code || '').trim().toLowerCase() === v.document_code.toLowerCase());
+    if (dupDoc) {
+      toast(`Document ID "${v.document_code}" already exists — choose a unique ID`);
+      document.querySelector('#modalHost [name="document_code"]')?.focus();
+      return;
+    }
     if (v.site_id && !v.facility_name) {
       const s = siteById(v.site_id);
       if (s) v.facility_name = s.name;
@@ -4980,6 +5005,19 @@ document.addEventListener('change', (e) => {
   if (e.target.matches('input[name="active_site"]')) {
     activeSiteId = e.target.value || 'all';
     render();
+    return;
+  }
+  if (e.target.matches('#modalHost input[name="site_id"]')) {
+    const saveBtn = document.querySelector('#modalHost [data-action="save-rca"]');
+    const isNewRca = saveBtn && !saveBtn.dataset.id;
+    const docEl = document.querySelector('#modalHost input[name="document_code"]');
+    if (isNewRca && docEl && (docEl.dataset.autoDoc === '1' || /^RCA-\d{4}-/.test(docEl.value.trim()))) {
+      docEl.value = nextDocCodeForSite(e.target.value);
+      docEl.dataset.autoDoc = '1';
+    }
+    const site = siteById(e.target.value);
+    const facEl = document.querySelector('#modalHost input[name="facility_name"]');
+    if (isNewRca && site && facEl) facEl.value = site.name;
     return;
   }
   if (e.target.matches('#modalHost input[name="industry_template"]')) {
