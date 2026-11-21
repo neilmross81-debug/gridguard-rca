@@ -1305,20 +1305,10 @@ function viewLanding() {
           <span class="dim" style="font-size:12px">or continue with</span>
           <div style="flex:1;height:1px;background:var(--line)"></div>
         </div>
-        <button type="button" class="btn btn-sm" style="width:100%;justify-content:center;margin-bottom:8px" data-action="oauth-login" data-provider="azure">
+        <button type="button" class="btn btn-sm" style="width:100%;justify-content:center" data-action="oauth-login" data-provider="azure">
           <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path fill="#F25022" d="M2 2h9.5v9.5H2z"/><path fill="#7FBA00" d="M12.5 2H22v9.5h-9.5z"/><path fill="#00A4EF" d="M2 12.5h9.5V22H2z"/><path fill="#FFB900" d="M12.5 12.5H22V22h-9.5z"/></svg>
           Microsoft / Windows SSO${IS_RWE_WEB ? ' (RWE)' : ''}
         </button>
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
-          <button type="button" class="btn btn-sm" style="justify-content:center" data-action="oauth-login" data-provider="google">
-            <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.8-5.5 3.8-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.3 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12Z"/></svg>
-            Google
-          </button>
-          <button type="button" class="btn btn-sm" style="justify-content:center" data-action="oauth-login" data-provider="github">
-            <svg viewBox="0 0 24 24" style="width:15px;height:15px" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12c0 4.4 2.9 8.2 6.8 9.5.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 22 12c0-5.5-4.5-10-10-10Z"/></svg>
-            GitHub
-          </button>
-        </div>
       </div>
 
       <div class="landing-features">
