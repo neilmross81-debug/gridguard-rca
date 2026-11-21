@@ -399,6 +399,50 @@ function setInvMeta(invId, patch) {
   DB.app_settings.inv_meta[invId] = Object.assign({}, getInvMeta(invId), patch);
 }
 
+function parseSapRefs(raw) {
+  if (!raw) return [];
+  const seen = new Set();
+  return String(raw)
+    .split(/[,;\r\n]+|\s+\/\s+/)
+    .map(s => s.trim())
+    .filter(s => s && (seen.has(s.toUpperCase()) ? false : (seen.add(s.toUpperCase()), true)));
+}
+
+function renderSapBadges(raw, limit = 0) {
+  const list = parseSapRefs(raw);
+  if (!list.length) return '';
+  const shown = limit > 0 ? list.slice(0, limit) : list;
+  const more = limit > 0 && list.length > limit ? `<span class="chip chip-slate mono" style="padding:1px 6px;font-size:11px">+${list.length - limit}</span>` : '';
+  return shown.map(r => {
+    const isWo = /^wo\b/i.test(r);
+    return `<span class="chip chip-${isWo ? 'cyan' : 'slate'} mono" style="padding:1px 6px;font-size:11px">${esc(r)}</span>`;
+  }).join('') + more;
+}
+
+function extractSapFromInv(invId) {
+  const texts = [
+    ...byInv('timeline_events', invId).map(e => `${e.source || ''} ${e.title || ''} ${e.detail || ''}`),
+    ...byInv('five_whys_nodes', invId).map(w => `${w.answer || ''} ${w.evidence || ''}`),
+  ].join(' \n ');
+  const re = /\b(?:SAP\s*(?:PM\s*)?)?(Notif(?:ication)?|WO|Work\s*Order)\s*#?:?\s*(\d{6,14})\b/gi;
+  const found = [];
+  let m;
+  while ((m = re.exec(texts)) !== null) {
+    const kind = /^w/i.test(m[1]) ? 'WO' : 'Notif';
+    found.push(`${kind} ${m[2]}`);
+  }
+  return parseSapRefs(found.join(', '));
+}
+
+function renderSapEditorChips(raw) {
+  const list = parseSapRefs(raw);
+  if (!list.length) return '<span class="dim" style="font-size:12px">No SAP Notifications or Work Orders added yet.</span>';
+  return list.map(r => {
+    const isWo = /^wo\b/i.test(r);
+    return `<span class="chip chip-${isWo ? 'cyan' : 'slate'} mono" style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px">${esc(r)}<button type="button" data-action="sap-remove" data-val="${esc(r)}" style="background:none;border:0;color:inherit;cursor:pointer;font-weight:700;padding:0 2px;line-height:1" title="Remove">×</button></span>`;
+  }).join('');
+}
+
 function getAuditLogs(invId) {
   const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
   const map = (s.audit_logs && typeof s.audit_logs === 'object') ? s.audit_logs : {};
@@ -1584,7 +1628,7 @@ function rcaRow(i) {
       <div class="rca-meta">
         <span class="mono">${esc(i.document_code)}</span>
         ${site ? `<span class="chip chip-slate" style="padding:1px 6px;font-size:11px">${esc(site.code)}</span>` : ''}
-        ${meta.sap_ref ? `<span class="mono" title="SAP Notification / Work Order">SAP: ${esc(meta.sap_ref)}</span>` : ''}
+        ${meta.sap_ref ? renderSapBadges(meta.sap_ref, 3) : ''}
         <span>${esc(i.facility_name)}</span>
         <span>${esc(i.equipment_tag || '—')}</span>
         <span>Updated ${fmtDate(i.updated_at)}</span>
@@ -2011,7 +2055,7 @@ function tabOverview(i) {
       <div class="card card-pad">
         <dl class="kv">
           <dt>Document ID</dt><dd class="mono">${esc(i.document_code)}</dd>
-          ${getInvMeta(i.id).sap_ref ? `<dt>SAP Notification / WO</dt><dd class="mono">${esc(getInvMeta(i.id).sap_ref)}</dd>` : ''}
+          ${getInvMeta(i.id).sap_ref ? `<dt>SAP Notifications / WOs</dt><dd><div class="chip-row">${renderSapBadges(getInvMeta(i.id).sap_ref)}</div></dd>` : ''}
           <dt>Facility / Site</dt><dd>${esc(i.facility_name)}</dd>
           <dt>Asset category</dt><dd>${esc(ASSET[i.asset_category] || i.asset_category || '—')}</dd>
           <dt>Equipment tag</dt><dd class="mono">${esc(i.equipment_tag || '—')}</dd>
@@ -2696,7 +2740,7 @@ function tabReport(i) {
 
         <dl class="kv" style="margin-top:20px">
           <dt>Document ID</dt><dd class="mono">${esc(i.document_code)}</dd>
-          ${getInvMeta(i.id).sap_ref ? `<dt>SAP Notification / WO</dt><dd class="mono">${esc(getInvMeta(i.id).sap_ref)}</dd>` : ''}
+          ${getInvMeta(i.id).sap_ref ? `<dt>SAP Notifications / WOs</dt><dd><div class="chip-row">${renderSapBadges(getInvMeta(i.id).sap_ref)}</div></dd>` : ''}
           <dt>Facility / Site</dt><dd>${esc(i.facility_name || '—')}</dd>
           <dt>Asset hierarchy</dt><dd>${esc(ASSET[i.asset_category] || '—')}</dd>
           <dt>Equipment tag</dt><dd class="mono">${esc(i.equipment_tag || '—')}</dd>
@@ -3183,8 +3227,24 @@ function rcaForm(i) {
         ${field(`Asset / Equipment Tag${isNew ? ' *' : ''}`, `<input class="input" name="equipment_tag" value="${esc(d.equipment_tag)}" placeholder="e.g. WTG-14 / CB-04" ${isNew ? 'required' : ''}>`)}
       </div>
       <div class="form-grid">
-        ${field('SAP Notification / Work Order # (optional)', `<input class="input mono" name="sap_ref" value="${esc(i ? (getInvMeta(i.id).sap_ref || '') : '')}" placeholder="e.g. Notif 014000169931 / WO 24000170866">`)}
+        <div class="field col-span-2">
+          <label>SAP Notifications &amp; Work Orders (optional — add multiple)</label>
+          <input type="hidden" name="sap_ref" id="sapRefHidden" value="${esc(i ? (getInvMeta(i.id).sap_ref || '') : '')}">
+          <div id="sapChipList" class="chip-row" style="margin-bottom:8px;min-height:24px">${renderSapEditorChips(i ? (getInvMeta(i.id).sap_ref || '') : '')}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <select class="input mono" id="sapPrefixSel" style="width:105px;flex:0 0 auto">
+              <option value="Notif">Notif</option>
+              <option value="WO">WO</option>
+            </select>
+            <input class="input mono" id="sapNewInput" placeholder="Enter number(s), e.g. 014000169931 or comma-separated list" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter'){event.preventDefault();document.querySelector('[data-action=sap-add]')?.click();}">
+            <button type="button" class="btn btn-sm" data-action="sap-add">${icon('plus')} Add</button>
+            ${i ? `<button type="button" class="btn btn-ghost btn-sm" data-action="sap-scan-timeline" data-id="${i.id}" title="Auto-detect SAP Notif and WO numbers from Timeline &amp; 5 Whys">Scan Timeline</button>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="form-grid">
         ${field(`System / Operating Spec${isNew ? ' *' : ''}`, `<input class="input" name="voltage_class" value="${esc(d.voltage_class)}" placeholder="e.g. 66 kV / 220 kV" ${isNew ? 'required' : ''}>`)}
+        ${field(`Incident date${isNew ? ' *' : ''}`, `<input class="input" type="date" name="incident_date" value="${toDateInput(d.incident_date)}" ${isNew ? 'required' : ''}>`)}
       </div>
       <div class="form-grid">
         ${field('Severity', select('severity', optsFrom(SEVERITY), d.severity))}
@@ -3195,10 +3255,7 @@ function rcaForm(i) {
         ${field('Fault category', select('fault_category', Object.entries(FAULT), d.fault_category))}
       </div>
       <div class="form-grid">
-        ${field(`Incident date${isNew ? ' *' : ''}`, `<input class="input" type="date" name="incident_date" value="${toDateInput(d.incident_date)}" ${isNew ? 'required' : ''}>`)}
         ${field(`Investigator name${isNew ? ' *' : ''}`, `<input class="input" name="investigator_name" value="${esc(d.investigator_name)}" placeholder="e.g. Alex Morgan" ${isNew ? 'required' : ''}>`)}
-      </div>
-      <div class="form-grid">
         ${field(`Investigator role${isNew ? ' *' : ''}`, `<input class="input" name="investigator_role" value="${esc(d.investigator_role)}" placeholder="e.g. Reliability Engineer" ${isNew ? 'required' : ''}>`)}
       </div>
       ${isGenImpactEnabled() ? (() => {
@@ -4494,6 +4551,8 @@ function methodGuideModal() {
         const cb = document.querySelector(`#modalHost [name="method_${k}"]`);
         if (cb) setInvMethod(targetId, k, cb.checked);
       });
+      const pendingSap = (document.getElementById('sapNewInput')?.value || '').trim();
+      if (pendingSap) ACTIONS['sap-add']();
       const sapEl = document.querySelector('#modalHost [name="sap_ref"]');
       if (sapEl) setInvMeta(targetId, { sap_ref: (sapEl.value || '').trim() });
     };
@@ -4821,6 +4880,41 @@ function methodGuideModal() {
     });
   },
 
+  'sap-add': () => {
+    const inp = document.getElementById('sapNewInput');
+    const hid = document.getElementById('sapRefHidden');
+    const pref = document.getElementById('sapPrefixSel')?.value || 'Notif';
+    const host = document.getElementById('sapChipList');
+    if (!inp || !hid || !host) return;
+    const raw = (inp.value || '').trim();
+    if (!raw) return;
+    const added = parseSapRefs(raw).map(token => /^(notif|wo)\b/i.test(token) ? token : `${pref} ${token}`);
+    const merged = parseSapRefs([hid.value, ...added].filter(Boolean).join(', '));
+    hid.value = merged.join(', ');
+    inp.value = '';
+    host.innerHTML = renderSapEditorChips(hid.value);
+  },
+  'sap-remove': (el) => {
+    const hid = document.getElementById('sapRefHidden');
+    const host = document.getElementById('sapChipList');
+    if (!hid || !host) return;
+    const target = String(el.dataset.val || '').trim().toUpperCase();
+    const rest = parseSapRefs(hid.value).filter(r => r.toUpperCase() !== target);
+    hid.value = rest.join(', ');
+    host.innerHTML = renderSapEditorChips(hid.value);
+  },
+  'sap-scan-timeline': (el) => {
+    const invId = el.dataset.id;
+    const hid = document.getElementById('sapRefHidden');
+    const host = document.getElementById('sapChipList');
+    if (!invId || !hid || !host) return;
+    const found = extractSapFromInv(invId);
+    if (!found.length) { toast('No SAP Notification or WO numbers detected in Timeline / 5 Whys'); return; }
+    const merged = parseSapRefs([hid.value, ...found].filter(Boolean).join(', '));
+    hid.value = merged.join(', ');
+    host.innerHTML = renderSapEditorChips(hid.value);
+    toast(`Detected ${found.length} SAP reference(s) from investigation records`);
+  },
   'signoff-rca': (el) => {
     const invId = el.dataset.id;
     const role = el.dataset.role;
