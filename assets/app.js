@@ -1718,6 +1718,11 @@ function viewRca(id, tab) {
         ${sevChip(i.severity)} ${statusChip(i.status)}
         ${chip(i.voltage_class || '—', 'slate')}
         ${!editable ? chip('Read-only (Viewer)', 'amber') : ''}
+        ${(() => {
+          const tag = String(i.equipment_tag || '').trim().toLowerCase();
+          const repeats = (DB.investigations || []).filter(x => x.id !== i.id && x.site_id === i.site_id && ((tag && String(x.equipment_tag || '').trim().toLowerCase() === tag) || (x.asset_category === i.asset_category && x.fault_category === i.fault_category)));
+          return repeats.length ? chip(`Repeat Incident (${repeats.length} prior)`, 'amber') : '';
+        })()}
       </div>
     </div>
     <div class="page-actions">
@@ -1755,6 +1760,32 @@ function fmtBytes(b) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function capaSourceInfo(c) {
+  const ref = String(c?.source_ref || '');
+  if (!ref) return null;
+  const [area, recId] = ref.split(':');
+  if (area === 'whys') {
+    const n = (DB.five_whys_nodes || []).find(x => x.id === recId);
+    return { tab: 'whys', label: n ? `5 Whys L${n.level}` : '5 Whys', detail: n ? (n.answer || n.question || '') : '', tone: 'accent' };
+  }
+  if (area === 'ishikawa') {
+    const k = (DB.ishikawa_causes || []).find(x => x.id === recId);
+    return { tab: 'ishikawa', label: k ? `6M · ${VECTOR[k.vector] || k.vector}` : 'Ishikawa 6M', detail: k ? k.cause : '', tone: 'cyan' };
+  }
+  if (area === 'fmea') {
+    const f = (DB.fmea_items || []).find(x => x.id === recId);
+    return { tab: 'fmea', label: f ? `FMEA · RPN ${rpnOf(f)}` : 'FMEA Risk', detail: f ? f.failure_mode : '', tone: 'amber' };
+  }
+  if (area === 'timeline') {
+    const t = (DB.timeline_events || []).find(x => x.id === recId);
+    return { tab: 'timeline', label: 'Timeline', detail: t ? t.title : '', tone: 'slate' };
+  }
+  if (area === 'overview') {
+    return { tab: 'overview', label: 'Overview', detail: '', tone: 'slate' };
+  }
+  return null;
 }
 
 function getLinkedCapas(invId, sourceRef, prefix, specificPrefix) {
@@ -1908,16 +1939,31 @@ function tabWhys(i) {
   const editable = canEditInv(i);
   const nodes = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const roots = nodes.filter(n => !n.parent_id);
+  const maxLevel = nodes.reduce((m, n) => Math.max(m, Number(n.level || 0)), 0);
   const chainOne = (n, isBranch) => whyCard(n, isBranch) + nodes.filter(x => x.parent_id === n.id).map(g => chainOne(g, true)).join('');
 
   const body = roots.map(r => whyCard(r, false) + nodes.filter(n => n.parent_id === r.id).map(c => chainOne(c, true)).join('')).join('')
     || `<div class="empty"><strong>No 5 Whys chain yet</strong>Start with the first "why" and drill down until you uncover the systemic root cause.</div>`;
+
+  const complexityHint = (maxLevel > 6 || nodes.length > 8) ? `
+    <div class="prompt-box no-print" style="margin-bottom:14px;border-left:3px solid var(--amber)">
+      <div class="prompt-box-title">Complex / Multi-Causal Event Detected (${maxLevel} levels · ${nodes.length} nodes)</div>
+      <div style="font-size:13px;color:var(--ink-2);margin-bottom:8px">
+        When a 5 Whys chain grows past 6 levels, it usually signals parallel contributing factors or multiple failed barriers rather than a single linear chain. Consider:
+        <strong>Ishikawa 6M</strong> (separate Machine, Method, Measurement, Man, Material &amp; Milieu), <strong>Fault Tree / Barrier Analysis</strong> (simultaneous protection/LOTO failures), or splitting separate events in the <strong>Timeline</strong>.
+      </div>
+      <div class="chip-row">
+        <button class="btn btn-sm" data-tab="ishikawa">Switch to Ishikawa 6M →</button>
+        <button class="btn btn-sm" data-tab="timeline">Review Timeline →</button>
+      </div>
+    </div>` : '';
 
   return `
   <div class="section-head">
     <div><h2 class="h3">5 Whys interrogative chain</h2><p>Drill down through immediate triggers (L1–L2) to process &amp; design gaps (L4–L5)</p></div>
     ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-why" data-id="${i.id}">${icon('plus')} Add why</button>` : ''}
   </div>
+  ${complexityHint}
   ${body}`;
 }
 
@@ -1937,7 +1983,7 @@ function whyCard(n, isBranch) {
       ${isBranch ? chip('Contributing branch', 'amber') : ''}
       ${editable ? `<div style="margin-left:auto" class="chip-row no-print">
         <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${n.investigation_id}" data-ref="whys:${n.id}" data-type="${n.is_root_cause ? 'preventive' : 'corrective'}" data-desc="${esc(capaDesc)}">${icon('plus')} CAPA</button>
-        <button class="btn btn-ghost btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}">${icon('plus')} Branch</button>
+        ${kids > 0 ? `<button class="btn btn-ghost btn-sm" data-action="add-why" data-id="${n.investigation_id}" data-parent="${n.id}" data-level="${(n.level || 1) + 1}" title="Add parallel contributing branch">${icon('plus')} Branch</button>` : ''}
         <button class="btn btn-ghost btn-sm" data-action="edit-why" data-why="${n.id}">${icon('edit')}</button>
         <button class="btn btn-ghost btn-sm" data-action="del-why" data-why="${n.id}">${icon('trash')}</button>
       </div>` : ''}
@@ -1946,7 +1992,6 @@ function whyCard(n, isBranch) {
     ${n.answer ? `<div class="why-a">${esc(n.answer)}</div>` : ''}
     ${n.evidence ? `<div class="why-e"><strong class="dim">Evidence:</strong> ${esc(n.evidence)}</div>` : ''}
     ${renderAttachments(n.investigation_id, 'whys', n.id, true)}
-    ${renderLinkedCapaTabs(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
     ${renderLinkedCapas(n.investigation_id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
     ${editable && !n.is_root_cause && kids === 0 ? `<div class="why-nudge no-print">
       <span><strong>Keep drilling (${esc(nextGuide.stage)}):</strong> ${esc(nextGuide.prompt)}</span>
@@ -2029,6 +2074,7 @@ function tabIshikawa(i) {
         ${renderAttachments(i.id, 'ishikawa', c.id, true)}
         ${renderLinkedCapas(i.id, `ishikawa:${c.id}`, `[${VECTOR[c.vector] || c.vector}] ${c.cause}`)}
         ${editable ? `<div class="chip-row no-print" style="margin-top:7px">
+          <button class="btn btn-ghost btn-sm" data-action="ish-to-why" data-id="${i.id}" data-ish="${c.id}" title="Drill down into a 5 Whys chain from this cause">→ 5 Whys</button>
           <button class="btn btn-ghost btn-sm" data-action="add-capa" data-id="${i.id}" data-ref="ishikawa:${c.id}" data-type="${c.is_primary ? 'preventive' : 'corrective'}" data-desc="${esc(`[${VECTOR[c.vector] || c.vector}] ${c.cause}${c.detail ? ' — ' + c.detail : ''}`)}">${icon('plus')} CAPA</button>
           <button class="btn btn-ghost btn-sm" data-action="edit-ish" data-ish="${c.id}">${icon('edit')}</button>
           <button class="btn btn-ghost btn-sm" data-action="del-ish" data-ish="${c.id}">${icon('trash')}</button>
@@ -2106,9 +2152,13 @@ function tabCapa(i) {
     const asanaBadge = aLink
       ? `<a class="chip chip-cyan" href="${esc(aLink.permalink_url)}" target="_blank" rel="noopener" style="text-decoration:none;margin-left:6px" title="Open linked Asana task">Asana ↗</a>`
       : (hasAsana && editable ? `<button class="btn btn-ghost btn-sm" data-action="asana-push-capa" data-capa="${c.id}" title="Push to Asana" style="margin-left:4px">↗ Asana</button>` : '');
+    const src = capaSourceInfo(c);
+    const srcBadge = src
+      ? `<button type="button" class="chip chip-${src.tone}" data-tab="${src.tab}" style="cursor:pointer;margin-right:6px;border:0" title="${esc(src.detail ? `Jump to ${src.label}: ${src.detail}` : `Jump to ${src.label}`)}">${esc(src.label)} ↗</button>`
+      : '';
     return `<tr>
       <td>${chip(CAPA_TYPE[c.type] || c.type, c.type === 'preventive' ? 'cyan' : 'accent')}</td>
-      <td><strong>${esc(c.description)}</strong>${asanaBadge}${c.verification_notes ? `<div class="dim" style="font-size:12.5px;margin-top:5px">Verification: ${esc(c.verification_notes)}</div>` : ''}${renderAttachments(i.id, 'capa', c.id, true)}</td>
+      <td>${srcBadge}<strong>${esc(c.description)}</strong>${asanaBadge}${c.verification_notes ? `<div class="dim" style="font-size:12.5px;margin-top:5px">Verification: ${esc(c.verification_notes)}</div>` : ''}${renderAttachments(i.id, 'capa', c.id, true)}</td>
       <td class="muted">${esc(c.owner || '—')}</td>
       <td class="muted">${fmtDate(c.target_date)}</td>
       <td>${overdue ? chip('Overdue', 'red') : capaChip(c.status)}</td>
@@ -2967,13 +3017,16 @@ function modalCapaSection(invId, action, idAttrs, sourceRef, matchPrefix, specif
   </div>`;
 }
 
-function whyForm(invId, node, parentId, level) {
+function whyForm(invId, node, parentId, level, presetQuestion) {
   const lvl = Number(level || (node ? node.level : 1)) || 1;
-  const d = node || { question: '', answer: '', evidence: '', level: lvl, is_root_cause: lvl >= 5 ? 1 : 0 };
+  const parentNode = parentId ? DB.five_whys_nodes.find(x => x.id === parentId) : null;
+  const autoQ = (!node && !presetQuestion && parentNode)
+    ? `Why did "${(parentNode.answer || parentNode.question || '').slice(0, 75)}${(parentNode.answer || parentNode.question || '').length > 75 ? '…' : ''}" occur?`
+    : (presetQuestion || '');
+  const d = node || { question: autoQ, answer: '', evidence: '', level: lvl, is_root_cause: lvl >= 5 ? 1 : 0 };
   const guide = WHY_LEVEL_GUIDE[Math.min(5, Math.max(1, lvl))];
   const inv = invById(invId);
   const domainPrompts = FAULT_PROMPTS[(inv && inv.fault_category) || 'electrical'] || FAULT_PROMPTS.electrical;
-  const parentNode = parentId ? DB.five_whys_nodes.find(x => x.id === parentId) : null;
   const whyAttrs = `data-id="${invId}" data-why="${node ? node.id : ''}" data-parent="${parentId || ''}"`;
 
   return {
@@ -2982,6 +3035,10 @@ function whyForm(invId, node, parentId, level) {
       ${parentNode ? `<div class="prompt-box" style="margin-bottom:12px">
         <div class="prompt-box-title">Drilling down from L${parentNode.level} finding</div>
         <div style="font-size:13px;color:var(--ink-2)">${esc(parentNode.answer || parentNode.question)}</div>
+      </div>` : ''}
+      ${lvl >= 4 ? `<div class="prompt-box" style="margin-bottom:12px;border-left:3px solid var(--accent)">
+        <div class="prompt-box-title">Reverse-Read ("Therefore") Verification</div>
+        <div style="font-size:12.5px;color:var(--ink-2)">Read your chain backwards: <em>"Because of L${lvl}, L${lvl - 1} happened…"</em> — if there is a logical jump, add an intermediate Why.</div>
       </div>` : ''}
       <div class="prompt-box">
         <div class="prompt-box-title">Coaching prompt · ${esc(guide.prompt)}</div>
@@ -2999,6 +3056,7 @@ function whyForm(invId, node, parentId, level) {
       ${modalCapaSection(invId, 'save-why-capa', whyAttrs, node ? `whys:${node.id}` : '', node ? `[5 Whys L${node.level}]` : '', node ? `[5 Whys L${node.level}] ${(node.answer || node.question || '').slice(0, 30)}` : '')}`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
            <button class="btn" data-action="save-why-capa" ${whyAttrs}>${icon('plus')} Save &amp; Add CAPA</button>
+           <button class="btn" data-action="save-why-next" ${whyAttrs}>Save &amp; Ask Why L${lvl + 1} →</button>
            <button class="btn btn-primary" data-action="save-why" ${whyAttrs}>${icon('check')} Save</button>`,
   };
 }
@@ -3086,10 +3144,15 @@ function capaForm(invId, item, preset) {
     source_ref: (preset && preset.source_ref) || '',
   };
   const roots = byInv('five_whys_nodes', invId).filter(n => n.is_root_cause);
+  const srcInfo = capaSourceInfo(d);
   return {
     eyebrow: 'CAPA plan', title: !editable ? 'View action (read-only)' : (item ? 'Edit action' : 'Add action'), width: 'wide',
     body: `
       <input type="hidden" name="source_ref" value="${esc(d.source_ref || '')}">
+      ${srcInfo ? `<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:12.5px">
+        <span class="dim">Linked from:</span> ${chip(srcInfo.label, srcInfo.tone)}
+        ${srcInfo.detail ? `<span class="muted">${esc(srcInfo.detail.slice(0, 90))}${srcInfo.detail.length > 90 ? '…' : ''}</span>` : ''}
+      </div>` : ''}
       ${roots.length ? `<div class="prompt-box">
         <div class="prompt-box-title">Verified Root Cause(s) to address</div>
         <div style="font-size:12.5px;color:var(--ink-2)">${roots.map(r => `• ${esc(r.answer || r.question)}`).join('<br>')}</div>
@@ -4019,6 +4082,20 @@ const ACTIONS = {
     const savedNode = saveWhyFromModal(el);
     if (!savedNode) return;
     closeModal(); render(); toast('Why level saved');
+  },
+  'ish-to-why': (el) => {
+    const k = (DB.ishikawa_causes || []).find(x => x.id === el.dataset.ish);
+    if (!k || !requireEdit(k.investigation_id)) return;
+    openModal(whyForm(k.investigation_id, null, null, 1, `Why did "${k.cause}" (${VECTOR[k.vector] || k.vector}) occur?`));
+  },
+  'save-why-next': (el) => {
+    if (!requireEdit(el.dataset.id)) return;
+    const savedNode = saveWhyFromModal(el);
+    if (!savedNode) return;
+    closeModal();
+    render();
+    toast(`Saved Why L${savedNode.level}`);
+    openModal(whyForm(el.dataset.id, null, savedNode.id, (Number(savedNode.level) || 1) + 1));
   },
   'save-why-capa': (el) => {
     if (!requireEdit(el.dataset.id)) return;
