@@ -375,6 +375,18 @@ function setBarrierItems(invId, items) {
   DB.app_settings.barrier_items[invId] = items;
 }
 
+function isWhysConcluded(invId) {
+  const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
+  const map = (s.whys_concluded && typeof s.whys_concluded === 'object') ? s.whys_concluded : {};
+  return Boolean(map[invId]);
+}
+
+function setWhysConcluded(invId, val) {
+  if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
+  if (!DB.app_settings.whys_concluded || typeof DB.app_settings.whys_concluded !== 'object') DB.app_settings.whys_concluded = {};
+  DB.app_settings.whys_concluded[invId] = Boolean(val);
+}
+
 function getAuditLogs(invId) {
   const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
   const map = (s.audit_logs && typeof s.audit_logs === 'object') ? s.audit_logs : {};
@@ -1687,36 +1699,41 @@ const ISHIKAWA_PROMPTS = {
 let selectedIshVector = 'machine';
 
 function computeRcaJourney(i) {
+  const m = getInvMethods(i.id);
   const whys = byInv('five_whys_nodes', i.id);
   const ish = byInv('ishikawa_causes', i.id);
   const fmea = byInv('fmea_items', i.id);
   const capas = byInv('capa_actions', i.id);
 
   const hasScope = Boolean((i.executive_summary || '').trim() && (i.equipment_tag || '').trim());
-  const maxWhyLevel = whys.reduce((m, n) => Math.max(m, Number(n.level) || 1), 0);
+  const maxWhyLevel = whys.reduce((mLvl, n) => Math.max(mLvl, Number(n.level) || 1), 0);
   const rootWhys = whys.filter(n => n.is_root_cause);
-  const hasWhys = maxWhyLevel >= 3 && rootWhys.length >= 1;
+  const whysManualDone = isWhysConcluded(i.id);
+  const hasWhys = !m.whys || whysManualDone || (maxWhyLevel >= 3 && rootWhys.length >= 1);
   const distinctVectors = new Set(ish.map(c => c.vector)).size;
-  const hasIsh = distinctVectors >= 3;
+  const hasIsh = !m.ishikawa || distinctVectors >= 3;
   const highRpnItems = fmea.filter(f => rpnOf(f) >= 100);
-  const hasFmea = fmea.length >= 1;
+  const hasFmea = !m.fmea || fmea.length >= 1;
   const hasCapa = capas.length >= 1 && (highRpnItems.length === 0 || capas.length >= Math.min(2, highRpnItems.length));
   const hasConclusion = Boolean((i.root_cause_conclusion || '').trim()) && (i.status === 'inReview' || i.status === 'closed');
 
-  const steps = [
-    { key: 'overview',  num: 1, label: 'Scope & Asset',   done: hasScope },
-    { key: 'whys',      num: 2, label: '5 Whys',          done: hasWhys },
-    { key: 'ishikawa',  num: 3, label: 'Ishikawa 6M',     done: hasIsh },
-    { key: 'fmea',      num: 4, label: 'FMEA Risk',       done: hasFmea },
-    { key: 'capa',      num: 5, label: 'CAPA Plan',       done: hasCapa },
-    { key: 'report',    num: 6, label: 'Conclusion',      done: hasConclusion },
+  const rawSteps = [
+    { key: 'overview', label: 'Scope & Asset', done: hasScope, enabled: true },
+    { key: 'whys',     label: '5 Whys',        done: hasWhys,  enabled: m.whys },
+    { key: 'ishikawa', label: 'Ishikawa 6M',   done: hasIsh,   enabled: m.ishikawa },
+    { key: 'fmea',     label: 'FMEA Risk',     done: hasFmea,  enabled: m.fmea },
+    { key: 'capa',     label: 'CAPA Plan',     done: hasCapa,  enabled: true },
+    { key: 'report',   label: 'Conclusion',    done: hasConclusion, enabled: true },
   ];
+  const steps = rawSteps.filter(s => s.enabled).map((s, idx) => ({ ...s, num: idx + 1 }));
 
   let next = null;
   if (!hasScope) {
     next = { tab: 'overview', action: 'edit-rca', text: 'Document the equipment tag and executive summary (what happened and what was curtailed) to anchor the investigation.', cta: 'Complete scope' };
-  } else if (whys.length === 0) {
+  } else if (m.whys && whys.length === 0) {
     next = { tab: 'whys', action: 'add-why', text: 'Start your 5 Whys chain at Level 1: ask what directly triggered the trip or failure.', cta: 'Start 5 Whys' };
+  } else if (!hasWhys && maxWhyLevel >= 5 && rootWhys.length === 0) {
+    next = { tab: 'whys', action: 'mark-whys-done', text: `5 Whys reached Level ${maxWhyLevel} with no single linear root cause. If this is multi-causal, mark 5 Whys complete and continue to Ishikawa 6M, Fault Tree, or Barrier Analysis.`, cta: 'Mark 5 Whys complete & continue' };
   } else if (!hasWhys) {
     next = { tab: 'whys', action: null, text: `You are at Why Level ${maxWhyLevel} with ${rootWhys.length} verified root cause(s). Drill down to Level 3–5 until you uncover the systemic or process gap.`, cta: 'Open 5 Whys' };
   } else if (!hasIsh) {
@@ -2009,19 +2026,21 @@ function tabWhys(i) {
   const nodes = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const roots = nodes.filter(n => !n.parent_id);
   const maxLevel = nodes.reduce((m, n) => Math.max(m, Number(n.level || 0)), 0);
+  const rootWhys = nodes.filter(n => n.is_root_cause);
+  const whysDone = isWhysConcluded(i.id);
   const chainOne = (n, isBranch) => whyCard(n, isBranch) + nodes.filter(x => x.parent_id === n.id).map(g => chainOne(g, true)).join('');
 
   const body = roots.map(r => whyCard(r, false) + nodes.filter(n => n.parent_id === r.id).map(c => chainOne(c, true)).join('')).join('')
     || `<div class="empty"><strong>No 5 Whys chain yet</strong>Start with the first "why" and drill down until you uncover the systemic root cause.</div>`;
 
-  const complexityHint = (maxLevel > 6 || nodes.length > 8) ? `
+  const complexityHint = (maxLevel >= 5 && rootWhys.length === 0) || maxLevel > 6 || nodes.length > 8 ? `
     <div class="prompt-box no-print" style="margin-bottom:14px;border-left:3px solid var(--amber)">
-      <div class="prompt-box-title">Complex / Multi-Causal Event Detected (${maxLevel} levels · ${nodes.length} nodes)</div>
+      <div class="prompt-box-title">Complex / Multi-Causal Event (${maxLevel} levels · ${nodes.length} nodes)</div>
       <div style="font-size:13px;color:var(--ink-2);margin-bottom:8px">
-        When a 5 Whys chain grows past 6 levels, it usually signals parallel contributing factors or multiple failed barriers rather than a single linear chain. Consider:
-        <strong>Ishikawa 6M</strong> (separate Machine, Method, Measurement, Man, Material &amp; Milieu), <strong>Fault Tree / Barrier Analysis</strong> (simultaneous protection/LOTO failures), or splitting separate events in the <strong>Timeline</strong>.
+        ${rootWhys.length === 0 ? 'No single linear root cause was isolated in 5 Whys. ' : ''}When a chain reaches 5–6+ levels, it usually signals parallel contributing factors or multiple failed barriers. You can mark 5 Whys complete here and continue with <strong>Ishikawa 6M</strong>, <strong>Fault Tree Analysis</strong>, or <strong>Barrier Analysis</strong>:
       </div>
       <div class="chip-row">
+        ${editable && !whysDone && rootWhys.length === 0 ? `<button class="btn btn-primary btn-sm" data-action="mark-whys-done" data-id="${i.id}">${icon('check')} Mark 5 Whys Complete &amp; Continue →</button>` : ''}
         <button class="btn btn-sm" data-action="enable-method-tab" data-id="${i.id}" data-method="ishikawa">${isMethodEnabled(i.id, 'ishikawa') ? 'Switch to Ishikawa 6M →' : 'Enable &amp; Open Ishikawa 6M →'}</button>
         <button class="btn btn-sm" data-action="enable-method-tab" data-id="${i.id}" data-method="fault_tree">${isMethodEnabled(i.id, 'fault_tree') ? 'Open Fault Tree →' : 'Enable &amp; Open Fault Tree →'}</button>
         <button class="btn btn-sm" data-action="enable-method-tab" data-id="${i.id}" data-method="barriers">${isMethodEnabled(i.id, 'barriers') ? 'Open Barrier Analysis →' : 'Enable &amp; Open Barrier Analysis →'}</button>
@@ -2032,7 +2051,10 @@ function tabWhys(i) {
   return `
   <div class="section-head">
     <div><h2 class="h3">5 Whys interrogative chain</h2><p>Drill down through immediate triggers (L1–L2) to process &amp; design gaps (L4–L5)</p></div>
-    ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-why" data-id="${i.id}">${icon('plus')} Add why</button>` : ''}
+    <div class="chip-row no-print">
+      ${whysDone ? `${chip('Stage marked complete', 'green')}${editable ? `<button class="btn btn-ghost btn-sm" data-action="reopen-whys" data-id="${i.id}">Reopen</button>` : ''}` : (editable && nodes.length > 0 && rootWhys.length === 0 ? `<button class="btn btn-sm" data-action="mark-whys-done" data-id="${i.id}">${icon('check')} Mark Complete</button>` : '')}
+      ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-why" data-id="${i.id}">${icon('plus')} Add why</button>` : ''}
+    </div>
   </div>
   ${complexityHint}
   ${body}`;
@@ -4327,6 +4349,23 @@ const ACTIONS = {
     const savedNode = saveWhyFromModal(el);
     if (!savedNode) return;
     closeModal(); render(); toast('Why level saved');
+  },
+  'mark-whys-done': (el) => {
+    const invId = el.dataset.id;
+    if (!requireEdit(invId)) return;
+    setWhysConcluded(invId, true);
+    recordAudit(invId, 'Completed 5 Whys', 'Marked 5 Whys stage complete to continue with multi-causal analysis');
+    save();
+    const m = getInvMethods(invId);
+    const nextTab = m.ishikawa ? 'ishikawa' : (m.fault_tree ? 'fault_tree' : (m.barriers ? 'barriers' : (m.fmea ? 'fmea' : 'capa')));
+    go(`#/investigations/${invId}/${nextTab}`);
+    toast('5 Whys marked complete — continuing to next method');
+  },
+  'reopen-whys': (el) => {
+    const invId = el.dataset.id;
+    if (!requireEdit(invId)) return;
+    setWhysConcluded(invId, false);
+    save(); render(); toast('5 Whys stage reopened');
   },
   'enable-method-tab': (el) => {
     const invId = el.dataset.id;
