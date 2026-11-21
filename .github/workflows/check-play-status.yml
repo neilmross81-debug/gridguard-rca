@@ -1,0 +1,91 @@
+name: Daily Google Play Status Check
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-play-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Google Play Tracks
+        env:
+          SA_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, time, urllib.request, urllib.parse, base64, subprocess, tempfile, os
+
+          sa = json.loads(os.environ["SA_JSON"])
+          now = int(time.time())
+          header = base64.urlsafe_b64encode(json.dumps({"alg":"RS256","typ":"JWT"}).encode()).rstrip(b"=").decode()
+          claim = base64.urlsafe_b64encode(json.dumps({
+              "iss": sa["client_email"],
+              "scope": "https://www.googleapis.com/auth/androidpublisher",
+              "aud": "https://oauth2.googleapis.com/token",
+              "exp": now + 3600,
+              "iat": now
+          }).encode()).rstrip(b"=").decode()
+
+          with tempfile.NamedTemporaryFile("w", delete=False) as kf:
+              kf.write(sa["private_key"])
+              kpath = kf.name
+          try:
+              p = subprocess.run(["openssl", "dgst", "-sha256", "-sign", kpath], input=f"{header}.{claim}".encode(), capture_output=True, check=True)
+          finally:
+              os.unlink(kpath)
+
+          sig = base64.urlsafe_b64encode(p.stdout).rstrip(b"=").decode()
+          jwt_tok = f"{header}.{claim}.{sig}"
+          data = urllib.parse.urlencode({"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt_tok}).encode()
+          tok = json.loads(urllib.request.urlopen(urllib.request.Request("https://oauth2.googleapis.com/token", data=data, method="POST")).read().decode())["access_token"]
+
+          BASE = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.totalrca.app"
+          def api(url, method="GET", body=None):
+              raw = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(url, data=raw, headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}, method=method)
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  txt = r.read().decode()
+                  return json.loads(txt) if txt else {}
+
+          ed = api(f"{BASE}/edits", "POST", {})
+          tracks = api(f"{BASE}/edits/{ed['id']}/tracks", "GET").get("tracks", [])
+          api(f"{BASE}/edits/{ed['id']}", "DELETE")
+
+          lines = ["### Google Play Track Status (`com.totalrca.app`)", ""]
+          prod_live = False
+          for t in tracks:
+              name = t.get("track")
+              rels = t.get("releases") or []
+              if rels:
+                  summary = ", ".join(f"{r.get('name')} ({r.get('status')})" for r in rels)
+                  if name == "production":
+                      prod_live = True
+              else:
+                  summary = "No releases"
+              lines.append(f"- **{name}**: {summary}")
+              print(f"{name}: {summary}")
+
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_file:
+              with open(summary_file, "a") as f:
+                  f.write("\n".join(lines) + "\n")
+
+          if prod_live:
+              title = "Google Play Status: Production Release Live (com.totalrca.app)"
+              existing = subprocess.run(
+                  ["gh", "issue", "list", "--repo", os.environ["REPO"], "--state", "open", "--search", title, "--json", "number"],
+                  capture_output=True, text=True, check=True
+              ).stdout
+              if not json.loads(existing):
+                  subprocess.run(
+                      ["gh", "issue", "create", "--repo", os.environ["REPO"], "--title", title, "--body", "\n".join(lines)],
+                      check=True
+                  )
+          PY
