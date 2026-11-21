@@ -4945,10 +4945,13 @@ function methodGuideModal() {
     }
     toast('Building Word document…');
     try {
-      const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ShadingType, ImageRun } = window.docx;
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ShadingType, ImageRun, BorderStyle } = window.docx;
+      const m = getInvMethods(i.id);
       const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
       const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0) || (a.sort_order || 0) - (b.sort_order || 0));
       const ish = byInv('ishikawa_causes', i.id);
+      const fta = getFtaNodes(i.id);
+      const barriers = getBarrierItems(i.id);
       const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
       const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
 
@@ -5000,20 +5003,33 @@ function methodGuideModal() {
         svgToPngBytes(fmeaSvg),
       ]);
 
-      const h1 = (txt) => new Paragraph({ text: txt, heading: HeadingLevel.HEADING_1, spacing: { before: 280, after: 120 } });
-      const bodyP = (txt) => new Paragraph({ children: [new TextRun({ text: String(txt || '—'), size: 22 })], spacing: { after: 120 } });
+      const brandHex = IS_RWE_WEB ? '1D4276' : '0078D4';
+      const h1 = (txt, pageBreak = false) => new Paragraph({
+        children: [new TextRun({ text: txt, bold: true, color: brandHex, size: 26 })],
+        spacing: { before: 320, after: 120 },
+        pageBreakBefore: pageBreak,
+      });
+      const bodyP = (txt) => new Paragraph({ children: [new TextRun({ text: String(txt || '—'), size: 21, color: '1E293B' })], spacing: { after: 140 } });
+      const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' };
+      const tableBorders = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder, insideHorizontal: cellBorder, insideVertical: cellBorder };
+      const cellMargins = { top: 90, bottom: 90, left: 130, right: 130 };
       const makeTable = (headers, rows) => new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: tableBorders,
         rows: [
           new TableRow({
+            tableHeader: true,
             children: headers.map(h => new TableCell({
-              shading: { type: ShadingType.CLEAR, fill: '0F172A' },
-              children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 20 })] })],
+              shading: { type: ShadingType.CLEAR, fill: brandHex },
+              margins: cellMargins,
+              children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 19 })] })],
             })),
           }),
-          ...rows.map(r => new TableRow({
+          ...rows.map((r, rIdx) => new TableRow({
             children: r.map(c => new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: String(c ?? '—'), size: 20 })] })],
+              shading: rIdx % 2 === 1 ? { type: ShadingType.CLEAR, fill: 'F8FAFC' } : undefined,
+              margins: cellMargins,
+              children: [new Paragraph({ children: [new TextRun({ text: String(c ?? '—'), size: 19, color: '1E293B' })] })],
             })),
           })),
         ],
@@ -5023,9 +5039,11 @@ function methodGuideModal() {
         spacing: { before: 80, after: 160 },
       }) : null;
 
+      let secN = 0;
+      const sn = () => String(++secN).padStart(2, '0');
       const children = [
-        new Paragraph({ children: [new TextRun({ text: `${APP_NAME.toUpperCase()} — ENGINEERING ROOT CAUSE REPORT`, bold: true, color: IS_RWE_WEB ? '1D4276' : '0078D4', size: 20 })], spacing: { after: 80 } }),
-        new Paragraph({ text: i.title || 'Root Cause Analysis', heading: HeadingLevel.TITLE, spacing: { after: 160 } }),
+        new Paragraph({ children: [new TextRun({ text: `${APP_NAME.toUpperCase()} — ENGINEERING ROOT CAUSE REPORT`, bold: true, color: brandHex, size: 20 })], spacing: { after: 80 } }),
+        new Paragraph({ text: i.title || 'Root Cause Analysis', heading: HeadingLevel.TITLE, spacing: { after: 180 } }),
         makeTable(['Field', 'Value'], [
           ['Document ID', i.document_code || '—'],
           ['Facility / Site', i.facility_name || '—'],
@@ -5035,56 +5053,84 @@ function methodGuideModal() {
           ['Incident Date (UTC)', fmtDateTime(i.incident_date)],
           ['Investigator', `${i.investigator_name || '—'}${i.investigator_role ? ' — ' + i.investigator_role : ''}`],
         ]),
-        h1('01. Problem Statement'),
+        h1(`${sn()}. Problem Statement`, true),
         bodyP(i.problem_statement || 'No problem statement recorded.'),
-        h1('02. Executive Summary'),
+        h1(`${sn()}. Executive Summary`),
         bodyP(i.executive_summary || 'No executive summary recorded.'),
-        h1('03. Sequence of Events (Timeline)'),
-        events.length
-          ? makeTable(['Timestamp (UTC)', 'Category', 'Event', 'Source'], events.map(ev => [
-              fmtDateTimeSec(ev.timestamp),
-              (TIMELINE_CAT[ev.category] || {}).label || ev.category,
-              `${ev.title}${ev.detail ? ' — ' + ev.detail : ''}`,
-              ev.source || '—',
-            ]))
-          : bodyP('No timeline events recorded.'),
-        h1('04. 5 Whys Causal Chain'),
       ];
-      if (whysPng) children.push(imgPara(whysPng));
+      if (m.timeline) {
+        children.push(
+          h1(`${sn()}. Sequence of Events (Timeline)`),
+          events.length
+            ? makeTable(['Timestamp (UTC)', 'Category', 'Event', 'Source'], events.map(ev => [
+                fmtDateTimeSec(ev.timestamp),
+                (TIMELINE_CAT[ev.category] || {}).label || ev.category,
+                `${ev.title}${ev.detail ? ' — ' + ev.detail : ''}`,
+                ev.source || '—',
+              ]))
+            : bodyP('No timeline events recorded.')
+        );
+      }
+      if (m.whys) {
+        children.push(h1(`${sn()}. 5 Whys Causal Chain`));
+        if (whysPng) children.push(imgPara(whysPng));
+        children.push(
+          whys.length
+            ? makeTable(['Level', 'Question', 'Finding', 'Evidence'], whys.map(n => [
+                `L${n.level}${n.is_root_cause ? ' (ROOT)' : ''}`,
+                n.question || '—',
+                n.answer || '—',
+                n.evidence || '—',
+              ]))
+            : bodyP('No 5 Whys levels recorded.')
+        );
+      }
+      if (m.ishikawa) {
+        children.push(h1(`${sn()}. Ishikawa (6M) Breakdown`));
+        if (fishPng) children.push(imgPara(fishPng));
+        children.push(
+          ish.length
+            ? makeTable(['6M Vector', 'Cause', 'Detail'], ish.map(c => [
+                VECTOR[c.vector] || c.vector,
+                `${c.is_primary ? '[PRIMARY] ' : ''}${c.cause}`,
+                c.detail || '—',
+              ]))
+            : bodyP('No Ishikawa causes recorded.')
+        );
+      }
+      if (m.fault_tree) {
+        children.push(
+          h1(`${sn()}. Fault Tree Analysis (FTA)`),
+          fta.length
+            ? makeTable(['Gate / Type', 'Event / Condition', 'Notes'], fta.map(n => [n.gate_type, n.label || '—', n.notes || '—']))
+            : bodyP('No fault tree nodes recorded.')
+        );
+      }
+      if (m.barriers) {
+        children.push(
+          h1(`${sn()}. Barrier Analysis (Swiss-Cheese)`),
+          barriers.length
+            ? makeTable(['Type', 'Barrier', 'Status', 'Gap / Failure Mode'], barriers.map(b => [BARRIER_TYPES[b.barrier_type] || b.barrier_type, b.name || '—', (BARRIER_STATUS[b.status] || {}).label || b.status, b.failure_reason || '—']))
+            : bodyP('No barriers assessed.')
+        );
+      }
+      if (m.fmea) {
+        children.push(h1(`${sn()}. Failure Mode & Effects Analysis (FMEA)`));
+        if (fmeaPng) children.push(imgPara(fmeaPng));
+        children.push(
+          fmea.length
+            ? makeTable(['Component', 'Failure Mode', 'S', 'O', 'D', 'RPN', 'Risk'], fmea.map(f => {
+                const rpn = rpnOf(f);
+                const [band] = riskBand(rpn);
+                return [f.component || '—', f.failure_mode || '—', f.severity, f.occurrence, f.detection, rpn, band];
+              }))
+            : bodyP('No FMEA items assessed.')
+        );
+      }
       children.push(
-        whys.length
-          ? makeTable(['Level', 'Question', 'Finding', 'Evidence'], whys.map(n => [
-              `L${n.level}${n.is_root_cause ? ' (ROOT)' : ''}`,
-              n.question || '—',
-              n.answer || '—',
-              n.evidence || '—',
-            ]))
-          : bodyP('No 5 Whys levels recorded.'),
-        h1('05. Ishikawa (6M) Breakdown'),
-      );
-      if (fishPng) children.push(imgPara(fishPng));
-      children.push(
-        ish.length
-          ? makeTable(['6M Vector', 'Cause', 'Detail'], ish.map(c => [
-              VECTOR[c.vector] || c.vector,
-              `${c.is_primary ? '[PRIMARY] ' : ''}${c.cause}`,
-              c.detail || '—',
-            ]))
-          : bodyP('No Ishikawa causes recorded.'),
-        h1('06. Failure Mode & Effects Analysis (FMEA)'),
-      );
-      if (fmeaPng) children.push(imgPara(fmeaPng));
-      children.push(
-        fmea.length
-          ? makeTable(['Component', 'Failure Mode', 'S', 'O', 'D', 'RPN', 'Risk'], fmea.map(f => {
-              const rpn = rpnOf(f);
-              const [band] = riskBand(rpn);
-              return [f.component || '—', f.failure_mode || '—', f.severity, f.occurrence, f.detection, rpn, band];
-            }))
-          : bodyP('No FMEA items assessed.'),
-        h1('07. Verified Root Cause Conclusion'),
+        h1(`${sn()}. Verified Root Cause Conclusion`),
         bodyP(i.root_cause_conclusion || 'Not yet concluded.'),
-        h1('08. Corrective & Preventive Action (CAPA) Plan'),
+        h1(`${sn()}. Corrective & Preventive Action (CAPA) Plan`),
         capas.length
           ? makeTable(['Type', 'Action & Verification', 'Owner', 'Due', 'Status'], capas.map(c => [
               CAPA_TYPE[c.type] || c.type,
@@ -5133,35 +5179,42 @@ function methodGuideModal() {
     try {
       const pptx = new window.PptxGenJS();
       pptx.layout = 'LAYOUT_16x9';
-      pptx.author = i.investigator_name || 'TotalRCA';
+      pptx.author = i.investigator_name || APP_NAME;
       pptx.title = `${i.document_code || 'RCA'} — ${i.title}`;
 
+      const m = getInvMethods(i.id);
       const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
       const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0) || (a.sort_order || 0) - (b.sort_order || 0));
       const ish = byInv('ishikawa_causes', i.id);
+      const fta = getFtaNodes(i.id);
+      const barriers = getBarrierItems(i.id);
       const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
       const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
       const maxRpn = fmea.length ? Math.max(...fmea.map(rpnOf)) : 0;
+      const pBlue = IS_RWE_WEB ? '1D4276' : '0078D4';
+      const pTeal = IS_RWE_WEB ? '00B38D' : '60A5FA';
+      const clipTxt = (t, max = 140) => { const s = String(t || '—').replace(/\s+/g, ' ').trim(); return s.length > max ? s.slice(0, max - 1) + '…' : s; };
 
       const addHeader = (slide, title, sub) => {
-        slide.background = { color: 'F8FAFC' };
-        slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.72, fill: { color: '0F172A' } });
+        slide.background = { color: 'F4F7FA' };
+        slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.72, fill: { color: pBlue } });
+        slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0.72, w: 13.33, h: 0.05, fill: { color: pTeal } });
         slide.addText(title, { x: 0.5, y: 0.12, w: 9.5, h: 0.45, fontSize: 18, bold: true, color: 'FFFFFF', fontFace: 'Calibri' });
-        slide.addText(sub || (i.document_code || 'TotalRCA'), { x: 10.0, y: 0.16, w: 2.8, h: 0.36, fontSize: 11, align: 'right', color: '93C5FD', fontFace: 'Calibri' });
+        slide.addText(sub || (i.document_code || APP_NAME), { x: 10.0, y: 0.16, w: 2.8, h: 0.36, fontSize: 11, align: 'right', color: 'E2E8F0', fontFace: 'Calibri' });
       };
 
       // Slide 1: Cover
       const s1 = pptx.addSlide();
-      s1.background = { color: '0F172A' };
-      s1.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 0.28, h: 7.5, fill: { color: '0078D4' } });
-      s1.addText('TOTALRCA  ·  ENGINEERING ROOT CAUSE REPORT', { x: 0.8, y: 0.9, w: 11.5, h: 0.4, fontSize: 12, bold: true, color: '60A5FA', charSpacing: 2 });
+      s1.background = { color: '0F233C' };
+      s1.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 0.28, h: 7.5, fill: { color: pTeal } });
+      s1.addText(`${APP_NAME.toUpperCase()}  ·  ENGINEERING ROOT CAUSE REPORT`, { x: 0.8, y: 0.9, w: 11.5, h: 0.4, fontSize: 12, bold: true, color: pTeal, charSpacing: 2 });
       s1.addText(i.title || 'Root Cause Analysis', { x: 0.8, y: 1.6, w: 11.5, h: 1.6, fontSize: 32, bold: true, color: 'FFFFFF', valign: 'top' });
       s1.addText(`${i.facility_name || '—'}  |  ${i.equipment_tag || '—'}  |  ${ASSET[i.asset_category] || '—'}`, { x: 0.8, y: 3.4, w: 11.5, h: 0.45, fontSize: 15, color: 'CBD5E1' });
       const metaRows = [
         ['Document ID', i.document_code || '—', 'Severity / Status', `${(SEVERITY[i.severity] || {}).label || i.severity} · ${(STATUS[i.status] || {}).label || i.status}`],
         ['Incident Date', fmtDateTime(i.incident_date), 'Investigator', `${i.investigator_name || '—'}${i.investigator_role ? ' (' + i.investigator_role + ')' : ''}`],
       ];
-      s1.addTable(metaRows.map(r => r.map((c, idx) => ({ text: String(c), options: { fontSize: 12, bold: idx % 2 === 0, color: idx % 2 === 0 ? '93C5FD' : 'FFFFFF', fill: { color: '1E293B' }, border: { color: '334155', pt: 0.5 } } }))), {
+      s1.addTable(metaRows.map(r => r.map((c, idx) => ({ text: String(c), options: { fontSize: 12, bold: idx % 2 === 0, color: idx % 2 === 0 ? pTeal : 'FFFFFF', fill: { color: '1D4276' }, border: { color: '334155', pt: 0.5 } } }))), {
         x: 0.8, y: 4.5, w: 11.5, rowH: 0.52, colW: [1.8, 3.9, 2.0, 3.8],
       });
 
@@ -5169,85 +5222,123 @@ function methodGuideModal() {
       const s2 = pptx.addSlide();
       addHeader(s2, 'Executive Summary & Key Metrics', i.document_code);
       const kpis = [
-        [String(events.length), 'Timeline Events'],
-        [String(whys.length), '5 Whys Levels'],
-        [String(ish.length), '6M Causes'],
-        [String(maxRpn || '—'), 'Max FMEA RPN'],
+        m.timeline ? [String(events.length), 'Timeline Events'] : null,
+        m.whys ? [String(whys.length), '5 Whys Levels'] : null,
+        m.ishikawa ? [String(ish.length), '6M Causes'] : null,
+        m.fmea ? [String(maxRpn || '—'), 'Max FMEA RPN'] : null,
         [String(capas.length), 'CAPA Actions'],
-      ];
+      ].filter(Boolean);
+      const kw = (12.3 - (kpis.length - 1) * 0.2) / Math.max(1, kpis.length);
       kpis.forEach(([val, lbl], idx) => {
-        const kx = 0.5 + idx * 2.52;
-        s2.addShape(pptx.ShapeType.roundRect, { x: kx, y: 1.0, w: 2.32, h: 1.1, fill: { color: 'FFFFFF' }, line: { color: 'E2E8F0', pt: 1 } });
-        s2.addText(val, { x: kx, y: 1.08, w: 2.32, h: 0.55, align: 'center', fontSize: 24, bold: true, color: '0078D4' });
-        s2.addText(lbl, { x: kx, y: 1.66, w: 2.32, h: 0.32, align: 'center', fontSize: 10.5, color: '64748B' });
+        const kx = 0.5 + idx * (kw + 0.2);
+        s2.addShape(pptx.ShapeType.roundRect, { x: kx, y: 1.0, w: kw, h: 1.1, fill: { color: 'FFFFFF' }, line: { color: 'D8E1EC', pt: 1 } });
+        s2.addText(val, { x: kx, y: 1.08, w: kw, h: 0.55, align: 'center', fontSize: 24, bold: true, color: pBlue });
+        s2.addText(lbl, { x: kx, y: 1.66, w: kw, h: 0.32, align: 'center', fontSize: 10.5, color: '526780' });
       });
       s2.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: 2.35, w: 12.3, h: 1.9, fill: { color: 'FFFBEB' }, line: { color: 'F59E0B', pt: 1 } });
       s2.addText('Problem Statement', { x: 0.7, y: 2.45, w: 11.9, h: 0.35, fontSize: 13, bold: true, color: '92400E' });
-      s2.addText(i.problem_statement || 'No problem statement recorded.', { x: 0.7, y: 2.85, w: 11.9, h: 1.3, fontSize: 12.5, color: '1E293B', valign: 'top' });
+      s2.addText(clipTxt(i.problem_statement || 'No problem statement recorded.', 500), { x: 0.7, y: 2.85, w: 11.9, h: 1.3, fontSize: 12, color: '1E293B', valign: 'top' });
       s2.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: 4.45, w: 12.3, h: 2.5, fill: { color: 'FFFFFF' }, line: { color: 'CBD5E1', pt: 1 } });
       s2.addText('Executive Summary', { x: 0.7, y: 4.55, w: 11.9, h: 0.35, fontSize: 13, bold: true, color: '0F172A' });
-      s2.addText(i.executive_summary || 'No executive summary recorded.', { x: 0.7, y: 4.95, w: 11.9, h: 1.9, fontSize: 12.5, color: '334155', valign: 'top' });
+      s2.addText(clipTxt(i.executive_summary || 'No executive summary recorded.', 700), { x: 0.7, y: 4.95, w: 11.9, h: 1.9, fontSize: 12, color: '334155', valign: 'top' });
 
-      // Slide 3: Timeline
-      const s3 = pptx.addSlide();
-      addHeader(s3, 'Incident Sequence of Events (Timeline)', i.document_code);
-      const tlHeader = ['Timestamp (UTC)', 'Category', 'Event', 'Source'].map(t => ({ text: t, options: { bold: true, fontSize: 11, color: 'FFFFFF', fill: { color: '0F172A' } } }));
-      const tlRows = events.slice(0, 9).map(ev => [
-        { text: fmtDateTimeSec(ev.timestamp), options: { fontSize: 10, color: '334155' } },
-        { text: (TIMELINE_CAT[ev.category] || {}).label || ev.category, options: { fontSize: 10, bold: true, color: '0078D4' } },
-        { text: `${ev.title}${ev.detail ? '\n' + ev.detail : ''}`, options: { fontSize: 10, color: '1E293B' } },
-        { text: ev.source || '—', options: { fontSize: 10, color: '64748B' } },
-      ]);
-      s3.addTable([tlHeader, ...(tlRows.length ? tlRows : [[{ text: 'No timeline events recorded.', options: { colspan: 4, fontSize: 11, color: '64748B' } }]])], {
-        x: 0.5, y: 1.0, w: 12.3, colW: [2.4, 1.8, 6.1, 2.0], border: { color: 'E2E8F0', pt: 0.5 }, fill: { color: 'FFFFFF' },
-      });
-
-      // Slide 4: 5 Whys Causal Chain
-      const s4 = pptx.addSlide();
-      addHeader(s4, '5 Whys Interrogative Causal Chain', i.document_code);
-      if (whys.length) {
-        whys.slice(0, 6).forEach((n, idx) => {
-          const y = 0.98 + idx * 1.02;
-          const isRoot = !!n.is_root_cause;
-          s4.addShape(pptx.ShapeType.roundRect, { x: 0.5, y, w: 12.3, h: 0.88, fill: { color: isRoot ? 'DCFCE7' : 'FFFFFF' }, line: { color: isRoot ? '16A34A' : '0078D4', pt: isRoot ? 1.8 : 1 } });
-          s4.addShape(pptx.ShapeType.roundRect, { x: 0.65, y: y + 0.16, w: 0.85, h: 0.54, fill: { color: isRoot ? '16A34A' : '0078D4' } });
-          s4.addText(`L${n.level}`, { x: 0.65, y: y + 0.16, w: 0.85, h: 0.54, align: 'center', valign: 'middle', bold: true, fontSize: 13, color: 'FFFFFF' });
-          s4.addText(`${n.question}${isRoot ? '  [ROOT CAUSE]' : ''}`, { x: 1.65, y: y + 0.06, w: 11.0, h: 0.34, bold: true, fontSize: 11.5, color: '0F172A' });
-          s4.addText(`${n.answer || '—'}${n.evidence ? '  (Evidence: ' + n.evidence + ')' : ''}`, { x: 1.65, y: y + 0.4, w: 11.0, h: 0.42, fontSize: 10.5, color: '334155' });
+      // Slide 3+: Timeline (paginated 8 per slide, up to 3 slides)
+      if (m.timeline) {
+        const tlChunks = [];
+        for (let idx = 0; idx < events.length && tlChunks.length < 3; idx += 8) tlChunks.push(events.slice(idx, idx + 8));
+        if (!tlChunks.length) tlChunks.push([]);
+        tlChunks.forEach((chunk, cIdx) => {
+          const s3 = pptx.addSlide();
+          addHeader(s3, `Sequence of Events (Timeline)${tlChunks.length > 1 ? ` · Page ${cIdx + 1}/${tlChunks.length}` : ''}`, i.document_code);
+          const tlHeader = ['Timestamp (UTC)', 'Category', 'Event', 'Source'].map(t => ({ text: t, options: { bold: true, fontSize: 11, color: 'FFFFFF', fill: { color: pBlue } } }));
+          const tlRows = chunk.map(ev => [
+            { text: fmtDateTimeSec(ev.timestamp), options: { fontSize: 9.5, color: '334155' } },
+            { text: (TIMELINE_CAT[ev.category] || {}).label || ev.category, options: { fontSize: 9.5, bold: true, color: pBlue } },
+            { text: clipTxt(`${ev.title}${ev.detail ? ' — ' + ev.detail : ''}`, 150), options: { fontSize: 9.5, color: '1E293B' } },
+            { text: clipTxt(ev.source || '—', 40), options: { fontSize: 9.5, color: '64748B' } },
+          ]);
+          s3.addTable([tlHeader, ...(tlRows.length ? tlRows : [[{ text: 'No timeline events recorded.', options: { colspan: 4, fontSize: 11, color: '64748B' } }]])], {
+            x: 0.5, y: 1.0, w: 12.3, colW: [2.3, 1.7, 6.2, 2.1], border: { color: 'E2E8F0', pt: 0.5 }, fill: { color: 'FFFFFF' },
+          });
         });
-      } else {
-        s4.addText('No 5 Whys nodes recorded.', { x: 0.5, y: 1.2, w: 12.3, h: 0.5, fontSize: 13, color: '64748B' });
       }
 
-      // Slide 5: Ishikawa 6M
-      const s5 = pptx.addSlide();
-      addHeader(s5, 'Ishikawa (6M) Fishbone Breakdown', i.document_code);
-      Object.keys(VECTOR).forEach((vk, idx) => {
-        const col = idx % 3, row = Math.floor(idx / 3);
-        const bx = 0.5 + col * 4.18, by = 1.0 + row * 3.08;
-        const items = ish.filter(c => c.vector === vk);
-        s5.addShape(pptx.ShapeType.roundRect, { x: bx, y: by, w: 3.98, h: 2.86, fill: { color: 'FFFFFF' }, line: { color: 'CBD5E1', pt: 1 } });
-        s5.addShape(pptx.ShapeType.rect, { x: bx, y: by, w: 3.98, h: 0.42, fill: { color: '0078D4' } });
-        s5.addText(VECTOR[vk], { x: bx + 0.12, y: by + 0.04, w: 3.74, h: 0.34, fontSize: 11.5, bold: true, color: 'FFFFFF' });
-        const bodyTxt = items.length
-          ? items.slice(0, 5).map(c => `• ${c.is_primary ? '[PRIMARY] ' : ''}${c.cause}`).join('\n')
-          : 'No causes recorded';
-        s5.addText(bodyTxt, { x: bx + 0.14, y: by + 0.5, w: 3.7, h: 2.25, fontSize: 10.5, color: items.length ? '1E293B' : '94A3B8', valign: 'top' });
-      });
+      // 5 Whys Causal Chain
+      if (m.whys) {
+        const s4 = pptx.addSlide();
+        addHeader(s4, '5 Whys Interrogative Causal Chain', i.document_code);
+        if (whys.length) {
+          whys.slice(0, 6).forEach((n, idx) => {
+            const y = 0.98 + idx * 1.02;
+            const isRoot = !!n.is_root_cause;
+            s4.addShape(pptx.ShapeType.roundRect, { x: 0.5, y, w: 12.3, h: 0.90, fill: { color: isRoot ? 'E6F7F2' : 'FFFFFF' }, line: { color: isRoot ? '008A6C' : pBlue, pt: isRoot ? 1.8 : 1 } });
+            s4.addShape(pptx.ShapeType.roundRect, { x: 0.65, y: y + 0.17, w: 0.85, h: 0.54, fill: { color: isRoot ? '008A6C' : pBlue } });
+            s4.addText(`L${n.level}`, { x: 0.65, y: y + 0.17, w: 0.85, h: 0.54, align: 'center', valign: 'middle', bold: true, fontSize: 13, color: 'FFFFFF' });
+            s4.addText(`${clipTxt(n.question, 105)}${isRoot ? '  [ROOT CAUSE]' : ''}`, { x: 1.65, y: y + 0.06, w: 11.0, h: 0.34, bold: true, fontSize: 11, color: '0F172A' });
+            s4.addText(clipTxt(`${n.answer || '—'}${n.evidence ? '  (Evidence: ' + n.evidence + ')' : ''}`, 155), { x: 1.65, y: y + 0.42, w: 11.0, h: 0.42, fontSize: 10, color: '334155' });
+          });
+        } else {
+          s4.addText('No 5 Whys nodes recorded.', { x: 0.5, y: 1.2, w: 12.3, h: 0.5, fontSize: 13, color: '64748B' });
+        }
+      }
 
-      // Slide 6: FMEA Risk Chart + Table
-      const s6 = pptx.addSlide();
-      addHeader(s6, 'FMEA Risk Priority Analysis', i.document_code);
-      if (fmea.length) {
-        const chartItems = fmea.slice(0, 6);
-        s6.addChart(pptx.ChartType.bar, [{
-          name: 'RPN (S × O × D)',
-          labels: chartItems.map(f => String(f.component || 'Item').slice(0, 22)),
-          values: chartItems.map(rpnOf),
-        }], {
-          x: 0.5, y: 1.0, w: 5.8, h: 5.8,
-          barDir: 'bar', chartColors: ['0078D4'], showValue: true, showLegend: false,
-          catAxisLabelFontSize: 10, valAxisLabelFontSize: 10,
+      // Ishikawa 6M
+      if (m.ishikawa) {
+        const s5 = pptx.addSlide();
+        addHeader(s5, 'Ishikawa (6M) Fishbone Breakdown', i.document_code);
+        Object.keys(VECTOR).forEach((vk, idx) => {
+          const col = idx % 3, row = Math.floor(idx / 3);
+          const bx = 0.5 + col * 4.18, by = 1.0 + row * 3.08;
+          const items = ish.filter(c => c.vector === vk);
+          s5.addShape(pptx.ShapeType.roundRect, { x: bx, y: by, w: 3.98, h: 2.86, fill: { color: 'FFFFFF' }, line: { color: 'CBD5E1', pt: 1 } });
+          s5.addShape(pptx.ShapeType.rect, { x: bx, y: by, w: 3.98, h: 0.42, fill: { color: pBlue } });
+          s5.addText(VECTOR[vk], { x: bx + 0.12, y: by + 0.04, w: 3.74, h: 0.34, fontSize: 11.5, bold: true, color: 'FFFFFF' });
+          const bodyTxt = items.length
+            ? items.slice(0, 5).map(c => `• ${c.is_primary ? '[PRIMARY] ' : ''}${clipTxt(c.cause, 65)}`).join('\n')
+            : 'No causes recorded';
+          s5.addText(bodyTxt, { x: bx + 0.14, y: by + 0.5, w: 3.7, h: 2.25, fontSize: 10.5, color: items.length ? '1E293B' : '94A3B8', valign: 'top' });
+        });
+      }
+
+      // Fault Tree & Barrier Analysis (if enabled and populated)
+      if (m.fault_tree && fta.length) {
+        const sf = pptx.addSlide();
+        addHeader(sf, 'Fault Tree Analysis (FTA)', i.document_code);
+        const fHdr = ['Gate / Type', 'Event / Condition', 'Notes'].map(t => ({ text: t, options: { bold: true, fontSize: 11, color: 'FFFFFF', fill: { color: pBlue } } }));
+        const fRows = fta.slice(0, 10).map(n => [
+          { text: n.gate_type, options: { bold: true, fontSize: 10, color: pBlue } },
+          { text: clipTxt(n.label, 90), options: { fontSize: 10, color: '1E293B' } },
+          { text: clipTxt(n.notes || '—', 90), options: { fontSize: 10, color: '64748B' } },
+        ]);
+        sf.addTable([fHdr, ...fRows], { x: 0.5, y: 1.0, w: 12.3, colW: [1.8, 5.5, 5.0], border: { color: 'E2E8F0', pt: 0.5 }, fill: { color: 'FFFFFF' } });
+      }
+      if (m.barriers && barriers.length) {
+        const sb = pptx.addSlide();
+        addHeader(sb, 'Barrier Analysis (Swiss-Cheese Model)', i.document_code);
+        const bHdr = ['Type', 'Barrier', 'Status', 'Gap / Failure Mode'].map(t => ({ text: t, options: { bold: true, fontSize: 11, color: 'FFFFFF', fill: { color: pBlue } } }));
+        const bRows = barriers.slice(0, 10).map(b => [
+          { text: BARRIER_TYPES[b.barrier_type] || b.barrier_type, options: { fontSize: 10, color: '334155' } },
+          { text: clipTxt(b.name, 65), options: { bold: true, fontSize: 10, color: '1E293B' } },
+          { text: (BARRIER_STATUS[b.status] || {}).label || b.status, options: { bold: true, fontSize: 10, color: (b.status === 'failed' || b.status === 'missing') ? 'C50F1F' : '008A6C' } },
+          { text: clipTxt(b.failure_reason || '—', 80), options: { fontSize: 10, color: '64748B' } },
+        ]);
+        sb.addTable([bHdr, ...bRows], { x: 0.5, y: 1.0, w: 12.3, colW: [2.4, 3.6, 1.8, 4.5], border: { color: 'E2E8F0', pt: 0.5 }, fill: { color: 'FFFFFF' } });
+      }
+
+      // FMEA Risk Chart + Table
+      if (m.fmea) {
+        const s6 = pptx.addSlide();
+        addHeader(s6, 'FMEA Risk Priority Analysis', i.document_code);
+        if (fmea.length) {
+          const chartItems = fmea.slice(0, 6);
+          s6.addChart(pptx.ChartType.bar, [{
+            name: 'RPN (S × O × D)',
+            labels: chartItems.map(f => String(f.component || 'Item').slice(0, 22)),
+            values: chartItems.map(rpnOf),
+          }], {
+            x: 0.5, y: 1.0, w: 5.8, h: 5.8,
+            barDir: 'bar', chartColors: [pBlue], showValue: true, showLegend: false,
+            catAxisLabelFontSize: 10, valAxisLabelFontSize: 10,
         });
         const fHeader = ['Component', 'Failure Mode', 'S', 'O', 'D', 'RPN'].map(t => ({ text: t, options: { bold: true, fontSize: 10, color: 'FFFFFF', fill: { color: '0F172A' } } }));
         const fRows = fmea.slice(0, 8).map(f => [
@@ -5264,18 +5355,19 @@ function methodGuideModal() {
       } else {
         s6.addText('No FMEA items assessed.', { x: 0.5, y: 1.2, w: 12.3, h: 0.5, fontSize: 13, color: '64748B' });
       }
+      }
 
       // Slide 7: Root Cause & CAPA Plan
       const s7 = pptx.addSlide();
       addHeader(s7, 'Verified Root Cause & CAPA Action Plan', i.document_code);
-      s7.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: 0.95, w: 12.3, h: 1.25, fill: { color: 'DCFCE7' }, line: { color: '16A34A', pt: 1.2 } });
-      s7.addText('Verified Root Cause Conclusion', { x: 0.7, y: 1.02, w: 11.9, h: 0.3, fontSize: 12, bold: true, color: '166534' });
-      s7.addText(i.root_cause_conclusion || 'Not yet concluded.', { x: 0.7, y: 1.34, w: 11.9, h: 0.78, fontSize: 11.5, color: '14532D', valign: 'top' });
+      s7.addShape(pptx.ShapeType.roundRect, { x: 0.5, y: 0.95, w: 12.3, h: 1.25, fill: { color: 'E6F7F2' }, line: { color: '008A6C', pt: 1.2 } });
+      s7.addText('Verified Root Cause Conclusion', { x: 0.7, y: 1.02, w: 11.9, h: 0.3, fontSize: 12, bold: true, color: '006650' });
+      s7.addText(clipTxt(i.root_cause_conclusion || 'Not yet concluded.', 360), { x: 0.7, y: 1.34, w: 11.9, h: 0.78, fontSize: 11.5, color: '0F233C', valign: 'top' });
 
-      const cHeader = ['Type', 'Action Description', 'Owner', 'Due Date', 'Status'].map(t => ({ text: t, options: { bold: true, fontSize: 10.5, color: 'FFFFFF', fill: { color: '0F172A' } } }));
+      const cHeader = ['Type', 'Action Description', 'Owner', 'Due Date', 'Status'].map(t => ({ text: t, options: { bold: true, fontSize: 10.5, color: 'FFFFFF', fill: { color: pBlue } } }));
       const cRows = capas.slice(0, 8).map(c => [
         { text: CAPA_TYPE[c.type] || c.type, options: { fontSize: 10, bold: true } },
-        { text: c.description || '—', options: { fontSize: 10 } },
+        { text: clipTxt(c.description, 120), options: { fontSize: 10 } },
         { text: c.owner || '—', options: { fontSize: 10 } },
         { text: fmtDate(c.target_date), options: { fontSize: 10 } },
         { text: (CAPA_STATUS[c.status] || {}).label || c.status, options: { fontSize: 10, bold: true } },
