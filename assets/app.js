@@ -2260,6 +2260,10 @@ function tabFaultTree(i) {
     <div><h2 class="h3">Fault Tree Analysis (FTA)</h2><p>Map multi-causal AND / OR logic paths for protection, SCADA, or simultaneous failures</p></div>
     ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-fta" data-id="${i.id}">${icon('plus')} Add Top / Event</button>` : ''}
   </div>
+  <div class="prompt-box no-print" style="margin-bottom:14px">
+    <div class="prompt-box-title">How to build a Fault Tree</div>
+    <div style="font-size:12.5px;color:var(--ink-2)">Start with the <strong>Top Event</strong>, then add sub-events under an <strong>OR Gate</strong> (any single sub-event triggers the parent) or an <strong>AND Gate</strong> (all sub-events had to fail together). Link a Preventive CAPA to verified Basic Events.</div>
+  </div>
   ${ftaSvg}
   ${body}`;
 }
@@ -2324,6 +2328,10 @@ function tabBarriers(i) {
     <div><h2 class="h3">Barrier Analysis (Swiss-Cheese Model)</h2><p>${counts.failed} failed · ${counts.missing} missing · ${counts.degraded} degraded · ${counts.effective} effective</p></div>
     ${editable ? `<button class="btn btn-primary btn-sm" data-action="add-barrier" data-id="${i.id}">${icon('plus')} Add barrier</button>` : ''}
   </div>
+  <div class="prompt-box no-print" style="margin-bottom:14px">
+    <div class="prompt-box-title">How to use Barrier Analysis</div>
+    <div style="font-size:12.5px;color:var(--ink-2)">Log each defense layer (<strong>Physical</strong>, <strong>Control / SCADA</strong>, <strong>Procedural / LOTO</strong>, <strong>Human / Supervision</strong>) that stood between the hazard and the event. Add a Preventive CAPA for every <strong>Failed</strong> or <strong>Missing</strong> barrier.</div>
+  </div>
   ${swissStrip}
   <div class="card table-scroll"><table class="table">
     <thead><tr><th>Barrier Type</th><th>Barrier &amp; Gap / Failure Mode</th><th>Status</th><th class="no-print" style="width:160px"></th></tr></thead>
@@ -2364,6 +2372,10 @@ function tabFmea(i) {
   <div class="section-head">
     <div><h2 class="h3">Failure mode &amp; effects analysis</h2><p>RPN = Severity × Occurrence × Detection · ≥100 triggers a corrective action</p></div>
     ${editable ? `<button class="btn btn-sm" data-action="add-fmea" data-id="${i.id}">${icon('plus')} Add failure mode</button>` : ''}
+  </div>
+  <div class="prompt-box no-print" style="margin-bottom:14px">
+    <div class="prompt-box-title">Scoring FMEA Risk (RPN = S × O × D)</div>
+    <div style="font-size:12.5px;color:var(--ink-2)">Score <strong>Severity</strong> (impact), <strong>Occurrence</strong> (frequency), and <strong>Detection</strong> (1 = certain alarm, 10 = undetected) from 1–10. Any failure mode with <strong>RPN ≥ 100</strong> (High) or <strong>≥ 200</strong> (Critical) should have a linked CAPA.</div>
   </div>
   ${items.length ? renderFmeaChartSvg(items) : ''}
   <div class="card table-scroll">
@@ -2615,6 +2627,21 @@ function tabReport(i) {
   regSec('capa',       'Corrective & preventive action (CAPA) plan', `${capas.length} action${capas.length === 1 ? '' : 's'} (${openCapas} open)`, 'rep-sec-8');
   regSec('atts',       'Attachments & supporting evidence', `${atts.length} file${atts.length === 1 ? '' : 's'}`, 'rep-sec-9');
 
+  const failedBarriers = barriers.filter(b => b.status === 'failed' || b.status === 'missing').length;
+  const highRpnCount = fmea.filter(f => rpnOf(f) >= 100).length;
+  const auditChecks = [
+    { ok: Boolean((i.problem_statement || '').trim() && (i.executive_summary || '').trim()), label: 'Scope, problem statement & executive summary recorded' },
+    { ok: rootWhys.length >= 1 || isWhysConcluded(i.id) || ish.length >= 3 || fta.length >= 1 || barriers.length >= 1, label: 'Root cause or multi-causal analysis completed' },
+    { ok: capas.length >= 1 && ((highRpnCount === 0 && failedBarriers === 0) || capas.length >= 1), label: `CAPA actions assigned (${capas.length} total${highRpnCount ? `, ${highRpnCount} high-RPN` : ''}${failedBarriers ? `, ${failedBarriers} failed/missing barriers` : ''})` },
+    { ok: Boolean((i.root_cause_conclusion || '').trim()), label: 'Verified Root Cause Conclusion written' },
+  ];
+  const auditHtml = `<div class="prompt-box no-print" style="margin-bottom:16px">
+    <div class="prompt-box-title">Pre-Closure Audit Readiness Checklist (${auditChecks.filter(c => c.ok).length} / 4 ready)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:6px;font-size:12.5px">
+      ${auditChecks.map(c => `<div style="color:${c.ok ? 'var(--green)' : 'var(--ink-3)'}">${c.ok ? '✓' : '○'} ${esc(c.label)}</div>`).join('')}
+    </div>
+  </div>`;
+
   return `
   <div class="report" id="reportBody">
     <div class="section-head no-print">
@@ -2626,6 +2653,7 @@ function tabReport(i) {
         <button class="btn btn-primary btn-sm" data-action="print">${icon('print')} Print / Save PDF</button>
       </div>
     </div>
+    ${auditHtml}
 
     <div class="report-cover">
       <div>
@@ -3108,6 +3136,7 @@ function rcaForm(i) {
             })()}
           </div>
           <div class="dim" style="font-size:11.5px;margin-top:6px">All methods are on by default. Timeline / SOE &amp; 5 Whys are recommended as a minimum baseline.</div>
+          <div id="methodRecHint" style="display:none;margin-top:6px;font-size:12px;color:var(--accent-2);font-weight:500"></div>
           <div id="methodWarnHost" style="display:none;margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--amber-soft);border:1px solid #F4C790;font-size:12.5px;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"></div>
         </div>
       </div>
@@ -4054,7 +4083,36 @@ function requireEdit(invId) {
   return true;
 }
 
-const ACTIONS = {
+function methodGuideModal() {
+  const rows = [
+    ['1. Overview & Scope', 'Always', 'Anchor the investigation with equipment tag, outage/generation impact, problem statement, and executive summary.'],
+    ['2. Timeline / SOE', 'Recommended baseline', 'Establish exact UTC sequence of events (SCADA alarms, protection trips, operator actions) before hypothesizing causes.'],
+    ['3. 5 Whys', 'Recommended baseline', 'Best for linear, single-chain faults. Drill 3–5 levels; if you pass 5–6 levels without a single root cause, mark complete and switch to a multi-causal method.'],
+    ['4. Ishikawa 6M', 'Multi-factor causes', 'Brainstorm parallel contributing factors across Man, Machine, Material, Method, Measurement, and Milieu. Click "→ 5 Whys" on any cause to drill down.'],
+    ['5. Fault Tree (FTA)', 'Complex logic / trips', 'Use AND gates (multiple failures required simultaneously) and OR gates (any single failure triggers the event) for protection, SCADA, or interlock trips.'],
+    ['6. Barrier Analysis', 'HSE, LOTO & containment', 'Swiss-Cheese model: audit which Physical, SCADA, Procedural/LOTO, and Human barriers worked, degraded, failed, or were missing.'],
+    ['7. FMEA Risk', 'Prioritisation', 'Score Severity × Occurrence × Detection (1–10). Any failure mode with RPN ≥ 100 should have a linked Corrective or Preventive CAPA.'],
+    ['8. CAPA & Report', 'Always', 'Link every CAPA back to its source finding, set owners/dates (export .ics to Outlook), and review the Audit Readiness Checklist before closing.'],
+  ];
+  return {
+    eyebrow: `${APP_NAME} Workflow`,
+    title: 'RCA Method & Field Guide',
+    width: 'wide',
+    body: `
+      <p class="muted" style="margin-top:0;font-size:13.5px">Use <strong>Timeline + 5 Whys</strong> for straightforward faults, and enable <strong>Ishikawa 6M, Fault Tree, or Barrier Analysis</strong> whenever multiple factors or failed safety/control barriers are involved.</p>
+      <div class="card table-scroll" style="margin:0">
+        <table class="table">
+          <thead><tr><th>Stage / Method</th><th>When to use</th><th>What good looks like</th></tr></thead>
+          <tbody>
+            ${rows.map(([m, w, d]) => `<tr><td><strong>${esc(m)}</strong></td><td>${chip(w, w === 'Always' ? 'accent' : w.includes('baseline') ? 'green' : 'slate')}</td><td class="muted" style="font-size:13px">${esc(d)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`,
+    foot: `<button class="btn btn-primary" data-action="close-modal">Got it</button>`,
+  };
+}
+
+  const ACTIONS = {
   'close-modal': closeModal,
 
   'landing-mode': (el) => {
@@ -5301,6 +5359,7 @@ const ACTIONS = {
     }
   },
 
+  'open-guide': () => openModal(methodGuideModal()),
   'settings': () => openModal(settingsModal()),
   'save-settings': () => {
     const cfg = collect(['supabase_url', 'supabase_key', 'webhook_url', 'custom_rest_url', 'custom_rest_token', 'custom_rest_format', 'gen_currency']);
@@ -5562,6 +5621,23 @@ document.addEventListener('change', (e) => {
     const facEl = document.querySelector('#modalHost input[name="facility_name"]');
     if (isNewRca && site && facEl) facEl.value = site.name;
     return;
+  }
+  if (e.target.matches('#modalHost input[name="severity"], #modalHost input[name="fault_category"], #modalHost input[name="industry_template"]')) {
+    const hintEl = document.getElementById('methodRecHint');
+    if (hintEl) {
+      const sev = document.querySelector('#modalHost input[name="severity"]')?.value || '';
+      const fault = document.querySelector('#modalHost input[name="fault_category"]')?.value || '';
+      const tpl = document.querySelector('#modalHost input[name="industry_template"]')?.value || '';
+      if (fault === 'human' || tpl === 'hseLoto') {
+        hintEl.style.display = 'block';
+        hintEl.textContent = 'Tip: For HSE / Human Factors or LOTO events, Barrier Analysis (Swiss-Cheese) and Timeline are strongly recommended.';
+      } else if (sev === 'critical' || sev === 'catastrophic' || tpl === 'hvSubstation') {
+        hintEl.style.display = 'block';
+        hintEl.textContent = 'Tip: For Critical / HV events, Fault Tree (FTA), Barrier Analysis, and FMEA help capture simultaneous protection or control failures.';
+      } else {
+        hintEl.style.display = 'none';
+      }
+    }
   }
   if (e.target.matches('#modalHost input[name="industry_template"]')) {
     const tpl = INDUSTRY_TEMPLATES[e.target.value];
