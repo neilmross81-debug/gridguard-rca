@@ -344,6 +344,10 @@ function ensureSitesAndUsers(pushToCloud = false) {
       try { u.assigned_rcas = JSON.parse(u.assigned_rcas); } catch (e) { u.assigned_rcas = []; }
     }
     if (!Array.isArray(u.assigned_rcas)) u.assigned_rcas = [];
+    if (u.id === 'usr-demo' || String(u.username || '').toLowerCase() === 'demo') {
+      u.is_global_admin = 1;
+      (DB.sites || []).forEach(s => { u.site_roles[s.id] = 'admin'; });
+    }
   });
 
   const updatedInvs = [];
@@ -1162,7 +1166,7 @@ function viewLanding() {
           </form>
           <div class="login-quick">
             <span>Quick switch role:</span>
-            <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="demo" data-pass="demo">Editor (demo)</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="demo" data-pass="demo">Admin (demo)</button>
             <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="viewer" data-pass="demo">Viewer</button>
             <button type="button" class="btn btn-ghost btn-sm" data-action="quick-login-fill" data-user="admin" data-pass="demo">Admin</button>
           </div>
