@@ -1,9 +1,9 @@
-const CACHE_NAME = 'rwe-rca-shell-v14';
+const CACHE_NAME = 'rwe-rca-shell-v15';
 const SHELL_ASSETS = [
   './',
   './index.html',
-  './assets/app.css?v=21',
-  './assets/app.js?v=52',
+  './assets/app.css?v=22',
+  './assets/app.js?v=53',
   './assets/native-bridge.js?v=5',
   './assets/favicon.svg?v=7',
   './assets/vendor/xlsx.full.min.js',

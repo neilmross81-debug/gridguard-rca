@@ -1803,7 +1803,7 @@ function viewRca(id, tab) {
     <button data-route="#/investigations">Investigations</button> <span>/</span> <span class="mono">${esc(i.document_code)}</span>
   </div>
 
-  <div class="page-head">
+  <div class="page-head ${activeTab === 'report' ? 'no-print' : ''}">
     <div>
       <div class="eyebrow">${site ? esc(site.code + ' · ') : ''}${esc(FAULT[i.fault_category] || i.fault_category || 'Unclassified')} · ${esc(ASSET[i.asset_category] || i.asset_category || '')}</div>
       <h1 class="display" style="font-size:clamp(24px,2.6vw,34px)">${esc(i.title)}</h1>
@@ -2594,7 +2594,7 @@ function renderCapaProgressBar(capas) {
 function tabReport(i) {
   const m = getInvMethods(i.id);
   const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
-  const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0) || (a.sort_order || 0) - (b.sort_order || 0));
   const ish = byInv('ishikawa_causes', i.id);
   const fta = getFtaNodes(i.id);
   const barriers = getBarrierItems(i.id);
@@ -4847,7 +4847,7 @@ function methodGuideModal() {
       const wb = XLSX.utils.book_new();
       const site = siteById(i.site_id);
       const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
-      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0) || (a.sort_order || 0) - (b.sort_order || 0));
       const ish = byInv('ishikawa_causes', i.id);
       const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
       const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
@@ -4947,7 +4947,7 @@ function methodGuideModal() {
     try {
       const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ShadingType, ImageRun } = window.docx;
       const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
-      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0) || (a.sort_order || 0) - (b.sort_order || 0));
       const ish = byInv('ishikawa_causes', i.id);
       const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
       const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
@@ -5135,7 +5135,7 @@ function methodGuideModal() {
       pptx.title = `${i.document_code || 'RCA'} — ${i.title}`;
 
       const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
-      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0) || (a.sort_order || 0) - (b.sort_order || 0));
       const ish = byInv('ishikawa_causes', i.id);
       const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
       const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
