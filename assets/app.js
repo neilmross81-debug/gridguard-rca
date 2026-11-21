@@ -2499,9 +2499,12 @@ function renderCapaProgressBar(capas) {
 }
 
 function tabReport(i) {
+  const m = getInvMethods(i.id);
   const events = byInv('timeline_events', i.id).slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
   const whys = byInv('five_whys_nodes', i.id).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   const ish = byInv('ishikawa_causes', i.id);
+  const fta = getFtaNodes(i.id);
+  const barriers = getBarrierItems(i.id);
   const fmea = byInv('fmea_items', i.id).slice().sort((a, b) => rpnOf(b) - rpnOf(a));
   const capas = byInv('capa_actions', i.id).slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0));
   const atts = byInv('attachments', i.id);
@@ -2510,17 +2513,26 @@ function tabReport(i) {
   const openCapas = capas.filter(c => ['open', 'inProgress'].includes(c.status)).length;
   const generatedAt = fmtDateTime(new Date().toISOString());
 
-  const tocItems = [
-    ['01', 'Problem statement', i.problem_statement ? 'Recorded' : 'Pending', 'rep-sec-1'],
-    ['02', 'Executive summary', i.executive_summary ? 'Recorded' : 'Pending', 'rep-sec-2'],
-    ['03', 'Sequence of events (timeline)', `${events.length} event${events.length === 1 ? '' : 's'}`, 'rep-sec-3'],
-    ['04', '5 Whys interrogative chain', `${whys.length} level${whys.length === 1 ? '' : 's'} · ${rootWhys.length} root cause${rootWhys.length === 1 ? '' : 's'}`, 'rep-sec-4'],
-    ['05', 'Ishikawa 6M breakdown', `${ish.length} cause${ish.length === 1 ? '' : 's'}`, 'rep-sec-5'],
-    ['06', 'Failure mode & effects analysis (FMEA)', `${fmea.length} item${fmea.length === 1 ? '' : 's'}${maxRpn ? ` · Max RPN ${maxRpn}` : ''}`, 'rep-sec-6'],
-    ['07', 'Root cause conclusion', i.root_cause_conclusion ? 'Verified' : 'Pending', 'rep-sec-7'],
-    ['08', 'Corrective & preventive action (CAPA) plan', `${capas.length} action${capas.length === 1 ? '' : 's'} (${openCapas} open)`, 'rep-sec-8'],
-    ['09', 'Attachments & supporting evidence', `${atts.length} file${atts.length === 1 ? '' : 's'}`, 'rep-sec-9'],
-  ];
+  let secIdx = 0;
+  const nextSec = () => String(++secIdx).padStart(2, '0');
+  const tocItems = [];
+  const secNums = {};
+  const regSec = (key, title, meta, anchor) => {
+    const num = nextSec();
+    secNums[key] = num;
+    tocItems.push([num, title, meta, anchor]);
+  };
+  regSec('problem', 'Problem statement', i.problem_statement ? 'Recorded' : 'Pending', 'rep-sec-1');
+  regSec('summary', 'Executive summary', i.executive_summary ? 'Recorded' : 'Pending', 'rep-sec-2');
+  if (m.timeline)   regSec('timeline',   'Sequence of events (timeline)', `${events.length} event${events.length === 1 ? '' : 's'}`, 'rep-sec-3');
+  if (m.whys)       regSec('whys',       '5 Whys interrogative chain', `${whys.length} level${whys.length === 1 ? '' : 's'} · ${rootWhys.length} root cause${rootWhys.length === 1 ? '' : 's'}`, 'rep-sec-4');
+  if (m.ishikawa)   regSec('ishikawa',   'Ishikawa 6M breakdown', `${ish.length} cause${ish.length === 1 ? '' : 's'}`, 'rep-sec-5');
+  if (m.fault_tree) regSec('fault_tree', 'Fault Tree Analysis (FTA)', `${fta.length} node${fta.length === 1 ? '' : 's'}`, 'rep-sec-fta');
+  if (m.barriers)   regSec('barriers',   'Barrier Analysis (Swiss-Cheese)', `${barriers.length} barrier${barriers.length === 1 ? '' : 's'}`, 'rep-sec-bar');
+  if (m.fmea)       regSec('fmea',       'Failure mode & effects analysis (FMEA)', `${fmea.length} item${fmea.length === 1 ? '' : 's'}${maxRpn ? ` · Max RPN ${maxRpn}` : ''}`, 'rep-sec-6');
+  regSec('conclusion', 'Root cause conclusion', i.root_cause_conclusion ? 'Verified' : 'Pending', 'rep-sec-7');
+  regSec('capa',       'Corrective & preventive action (CAPA) plan', `${capas.length} action${capas.length === 1 ? '' : 's'} (${openCapas} open)`, 'rep-sec-8');
+  regSec('atts',       'Attachments & supporting evidence', `${atts.length} file${atts.length === 1 ? '' : 's'}`, 'rep-sec-9');
 
   return `
   <div class="report" id="reportBody">
@@ -2569,10 +2581,10 @@ function tabReport(i) {
         </dl>
 
         <div class="report-kpis">
-          <div class="report-kpi"><div class="report-kpi-val">${events.length}</div><div class="report-kpi-lbl">Timeline events</div></div>
-          <div class="report-kpi"><div class="report-kpi-val">${whys.length}</div><div class="report-kpi-lbl">5 Whys levels</div></div>
-          <div class="report-kpi"><div class="report-kpi-val">${ish.length}</div><div class="report-kpi-lbl">6M causes</div></div>
-          <div class="report-kpi"><div class="report-kpi-val">${maxRpn || '—'}</div><div class="report-kpi-lbl">Max FMEA RPN</div></div>
+          ${m.timeline ? `<div class="report-kpi"><div class="report-kpi-val">${events.length}</div><div class="report-kpi-lbl">Timeline events</div></div>` : ''}
+          ${m.whys ? `<div class="report-kpi"><div class="report-kpi-val">${whys.length}</div><div class="report-kpi-lbl">5 Whys levels</div></div>` : ''}
+          ${m.ishikawa ? `<div class="report-kpi"><div class="report-kpi-val">${ish.length}</div><div class="report-kpi-lbl">6M causes</div></div>` : ''}
+          ${m.fmea ? `<div class="report-kpi"><div class="report-kpi-val">${maxRpn || '—'}</div><div class="report-kpi-lbl">Max FMEA RPN</div></div>` : ''}
           <div class="report-kpi"><div class="report-kpi-val">${capas.length}</div><div class="report-kpi-lbl">CAPA actions</div></div>
           <div class="report-kpi"><div class="report-kpi-val">${atts.length}</div><div class="report-kpi-lbl">Attachments</div></div>
         </div>
@@ -2597,16 +2609,16 @@ function tabReport(i) {
       </div>
     </div>
 
-    <h2 id="rep-sec-1"><span class="sec-num">01</span> Problem statement</h2>
+    <h2 id="rep-sec-1"><span class="sec-num">${secNums.problem}</span> Problem statement</h2>
     <div class="report-callout warn"><p style="margin:0">${esc(i.problem_statement || 'No problem statement recorded.')}</p></div>
 
-    <h2 id="rep-sec-2"><span class="sec-num">02</span> Executive summary</h2>
+    <h2 id="rep-sec-2"><span class="sec-num">${secNums.summary}</span> Executive summary</h2>
     <p>${esc(i.executive_summary || '—')}</p>
 
-    <h2 id="rep-sec-3"><span class="sec-num">03</span> Sequence of events (timeline)</h2>
-    ${renderVisualTimeline(events)}
+    ${m.timeline ? `<h2 id="rep-sec-3"><span class="sec-num">${secNums.timeline}</span> Sequence of events (timeline)</h2>
+    ${renderVisualTimeline(events)}` : ''}
 
-    <h2 id="rep-sec-4"><span class="sec-num">04</span> 5 Whys interrogative chain</h2>
+    ${m.whys ? `<h2 id="rep-sec-4"><span class="sec-num">${secNums.whys}</span> 5 Whys interrogative chain</h2>
     ${renderWhysFlowSvg(whys)}
     ${whys.map(n => `<div class="report-why ${n.is_root_cause ? 'root' : ''}">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
@@ -2617,9 +2629,9 @@ function tabReport(i) {
       <div class="muted" style="font-size:13.5px;margin-bottom:4px"><strong>Finding:</strong> ${esc(n.answer || '—')}</div>
       <div class="dim" style="font-size:12.5px"><strong>Evidence:</strong> ${esc(n.evidence || '—')}</div>
       ${renderLinkedCapas(i.id, `whys:${n.id}`, `[5 Whys L${n.level}]`, `[5 Whys L${n.level}] ${(n.answer || n.question || '').slice(0, 30)}`)}
-    </div>`).join('') || '<p class="dim">No chain recorded.</p>'}
+    </div>`).join('') || '<p class="dim">No chain recorded.</p>'}` : ''}
 
-    <h2 id="rep-sec-5"><span class="sec-num">05</span> Ishikawa 6M breakdown</h2>
+    ${m.ishikawa ? `<h2 id="rep-sec-5"><span class="sec-num">${secNums.ishikawa}</span> Ishikawa 6M breakdown</h2>
     ${ish.length ? `<div class="card" style="padding:12px;margin-bottom:14px;overflow-x:auto">${renderFishboneSvg(i, ish)}</div>` : ''}
     <table class="table"><thead><tr><th>6M vector</th><th>Identified causes</th></tr></thead><tbody>
       ${Object.keys(VECTOR).map(v => {
@@ -2627,21 +2639,31 @@ function tabReport(i) {
         if (!items.length) return '';
         return `<tr><td><strong>${esc(VECTOR[v])}</strong></td><td>${items.map(c => `${c.is_primary ? '<strong>[PRIMARY]</strong> ' : ''}${esc(c.cause)}${c.detail ? ' — ' + esc(c.detail) : ''}`).join('<br>')}</td></tr>`;
       }).join('') || '<tr><td colspan="2" class="dim">No causes recorded.</td></tr>'}
-    </tbody></table>
+    </tbody></table>` : ''}
 
-    <h2 id="rep-sec-6"><span class="sec-num">06</span> Failure mode &amp; effects analysis (FMEA)</h2>
+    ${m.fault_tree ? `<h2 id="rep-sec-fta"><span class="sec-num">${secNums.fault_tree}</span> Fault Tree Analysis (FTA)</h2>
+    ${fta.length ? `<table class="table"><thead><tr><th>Gate / Type</th><th>Event / Condition</th><th>Notes</th></tr></thead><tbody>
+      ${fta.map(n => `<tr><td>${esc(n.gate_type)}</td><td><strong>${esc(n.label)}</strong></td><td class="muted">${esc(n.notes || '—')}</td></tr>`).join('')}
+    </tbody></table>` : '<p class="dim">No fault tree nodes recorded.</p>'}` : ''}
+
+    ${m.barriers ? `<h2 id="rep-sec-bar"><span class="sec-num">${secNums.barriers}</span> Barrier Analysis (Swiss-Cheese)</h2>
+    ${barriers.length ? `<table class="table"><thead><tr><th>Type</th><th>Barrier</th><th>Status</th><th>Gap / Failure Mode</th></tr></thead><tbody>
+      ${barriers.map(b => `<tr><td>${esc(BARRIER_TYPES[b.barrier_type] || b.barrier_type)}</td><td><strong>${esc(b.name)}</strong></td><td>${esc((BARRIER_STATUS[b.status] || {}).label || b.status)}</td><td class="muted">${esc(b.failure_reason || '—')}</td></tr>`).join('')}
+    </tbody></table>` : '<p class="dim">No barriers assessed.</p>'}` : ''}
+
+    ${m.fmea ? `<h2 id="rep-sec-6"><span class="sec-num">${secNums.fmea}</span> Failure mode &amp; effects analysis (FMEA)</h2>
     ${renderFmeaChartSvg(fmea)}
     <table class="table"><thead><tr><th>Component</th><th>Failure mode</th><th>Potential effect</th><th class="num">S</th><th class="num">O</th><th class="num">D</th><th class="num">RPN</th><th>Risk</th></tr></thead><tbody>
       ${fmea.map(f => { const [band] = riskBand(rpnOf(f)); return `<tr>
         <td><strong>${esc(f.component)}</strong></td><td class="muted">${esc(f.failure_mode)}</td><td class="muted">${esc(f.potential_effect)}</td>
         <td class="num">${f.severity}</td><td class="num">${f.occurrence}</td><td class="num">${f.detection}</td>
         <td class="num"><strong>${rpnOf(f)}</strong></td><td>${band}</td></tr>`; }).join('') || '<tr><td colspan="8" class="dim">No failure modes assessed.</td></tr>'}
-    </tbody></table>
+    </tbody></table>` : ''}
 
-    <h2 id="rep-sec-7"><span class="sec-num">07</span> Root cause conclusion</h2>
+    <h2 id="rep-sec-7"><span class="sec-num">${secNums.conclusion}</span> Root cause conclusion</h2>
     <div class="report-callout ok"><p style="margin:0"><strong>${esc(i.root_cause_conclusion || 'Not yet concluded.')}</strong></p></div>
 
-    <h2 id="rep-sec-8"><span class="sec-num">08</span> Corrective &amp; preventive action (CAPA) plan</h2>
+    <h2 id="rep-sec-8"><span class="sec-num">${secNums.capa}</span> Corrective &amp; preventive action (CAPA) plan</h2>
     ${renderCapaProgressBar(capas)}
     <table class="table"><thead><tr><th>Type</th><th>Action &amp; verification</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody>
       ${capas.map(c => `<tr>
@@ -2651,7 +2673,7 @@ function tabReport(i) {
         <td>${(CAPA_STATUS[c.status] || {}).label || esc(c.status)}</td></tr>`).join('') || '<tr><td colspan="5" class="dim">No actions raised.</td></tr>'}
     </tbody></table>
 
-    <h2 id="rep-sec-9"><span class="sec-num">09</span> Attachments &amp; supporting evidence</h2>
+    <h2 id="rep-sec-9"><span class="sec-num">${secNums.atts}</span> Attachments &amp; supporting evidence</h2>
     ${atts.length
       ? `<table class="table"><thead><tr><th>Area</th><th>File</th><th>Caption</th><th>Size</th></tr></thead><tbody>
           ${atts.map(a => `<tr>
@@ -2991,6 +3013,22 @@ function rcaForm(i) {
           ${field('Industry template (optional)', select('industry_template', tplOpts, 'none'), 'Pre-fills asset category, fault type & starter problem statement.')}
         </div>
       </div>` : ''}
+      <div class="form-grid" style="margin-bottom:10px">
+        <div class="field col-span-2" style="background:var(--bg-alt);padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--line)">
+          <label style="margin-bottom:6px">Analysis Methods Enabled for this RCA</label>
+          <div style="display:flex;flex-wrap:wrap;gap:12px">
+            ${(() => {
+              const m = i ? getInvMethods(i.id) : Object.fromEntries(RCA_TOGGLE_METHODS.map(([k]) => [k, true]));
+              return RCA_TOGGLE_METHODS.map(([k, lbl]) => `
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer">
+                  <input type="checkbox" name="method_${k}" ${m[k] ? 'checked' : ''}>
+                  <span>${esc(lbl)}</span>
+                </label>`).join('');
+            })()}
+          </div>
+          <div class="dim" style="font-size:11.5px;margin-top:6px">All methods are on by default. Timeline / SOE &amp; 5 Whys are recommended as a minimum baseline.</div>
+        </div>
+      </div>
       <div class="form-grid">
         ${field('Site / Location', select('site_id', siteOpts, d.site_id || defaultSiteId))}
         ${field('Document ID', `<input class="input mono" name="document_code" value="${esc(d.document_code)}" ${isNew ? 'data-auto-doc="1"' : ''} oninput="this.removeAttribute('data-auto-doc')" required>`, 'Linked to site code · duplicates are blocked.')}
@@ -3046,22 +3084,6 @@ function rcaForm(i) {
         <div class="field col-span-2">
           <label>Root cause conclusion</label>
           <textarea class="textarea" name="root_cause_conclusion" placeholder="Verified primary root cause…">${esc(d.root_cause_conclusion)}</textarea>
-        </div>
-      </div>
-      <div class="form-grid">
-        <div class="field col-span-2" style="background:var(--bg-alt);padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--line)">
-          <label style="margin-bottom:6px">Analysis Methods Enabled for this RCA</label>
-          <div style="display:flex;flex-wrap:wrap;gap:12px">
-            ${(() => {
-              const m = i ? getInvMethods(i.id) : Object.fromEntries(RCA_TOGGLE_METHODS.map(([k]) => [k, true]));
-              return RCA_TOGGLE_METHODS.map(([k, lbl]) => `
-                <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer">
-                  <input type="checkbox" name="method_${k}" ${m[k] ? 'checked' : ''}>
-                  <span>${esc(lbl)}</span>
-                </label>`).join('');
-            })()}
-          </div>
-          <div class="dim" style="font-size:11.5px;margin-top:6px">All methods are on by default. Uncheck any you don't need (e.g. show only 5 Whys) — you can re-enable them anytime.</div>
         </div>
       </div>`,
     foot: `<button class="btn" data-action="close-modal">Cancel</button>
@@ -4657,37 +4679,46 @@ const ACTIONS = {
       ];
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(overviewRows), 'Overview');
 
-      const tlRows = [['Timestamp (UTC)', 'Category', 'Source', 'Headline', 'Detail'], ...events.map(e => [
-        fmtDateTimeSec(e.timestamp),
-        (TIMELINE_CAT[e.category] && TIMELINE_CAT[e.category].label) || e.category || '',
-        e.source || '',
-        e.title || '',
-        e.detail || '',
-      ])];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tlRows), 'Timeline');
+      const m = getInvMethods(i.id);
+      if (m.timeline) {
+        const tlRows = [['Timestamp (UTC)', 'Category', 'Source', 'Headline', 'Detail'], ...events.map(e => [
+          fmtDateTimeSec(e.timestamp),
+          (TIMELINE_CAT[e.category] && TIMELINE_CAT[e.category].label) || e.category || '',
+          e.source || '',
+          e.title || '',
+          e.detail || '',
+        ])];
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tlRows), 'Timeline');
+      }
 
-      const whyRows = [['Level', 'Question', 'Answer', 'Root Cause', 'Evidence'], ...whys.map(w => [
-        w.level || '',
-        w.question || '',
-        w.answer || '',
-        w.is_root_cause ? 'Yes' : 'No',
-        w.evidence || '',
-      ])];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(whyRows), '5 Whys');
+      if (m.whys) {
+        const whyRows = [['Level', 'Question', 'Answer', 'Root Cause', 'Evidence'], ...whys.map(w => [
+          w.level || '',
+          w.question || '',
+          w.answer || '',
+          w.is_root_cause ? 'Yes' : 'No',
+          w.evidence || '',
+        ])];
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(whyRows), '5 Whys');
+      }
 
-      const ishRows = [['6M Vector', 'Cause', 'Detail', 'Primary'], ...ish.map(c => [
-        VECTOR[c.vector] || c.vector || '',
-        c.cause || '',
-        c.detail || '',
-        c.is_primary ? 'Yes' : 'No',
-      ])];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ishRows), 'Ishikawa 6M');
+      if (m.ishikawa) {
+        const ishRows = [['6M Vector', 'Cause', 'Detail', 'Primary'], ...ish.map(c => [
+          VECTOR[c.vector] || c.vector || '',
+          c.cause || '',
+          c.detail || '',
+          c.is_primary ? 'Yes' : 'No',
+        ])];
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ishRows), 'Ishikawa 6M');
+      }
 
-      const fmeaRows = [['Failure Mode', 'Effect', 'Cause', 'Severity', 'Occurrence', 'Detection', 'RPN', 'Risk Band', 'Recommended Action'], ...fmea.map(f => {
-        const rpn = rpnOf(f);
-        return [f.failure_mode || '', f.effect || '', f.cause || '', f.severity || 0, f.occurrence || 0, f.detection || 0, rpn, riskBand(rpn)[0], f.recommended_action || ''];
-      })];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fmeaRows), 'FMEA');
+      if (m.fmea) {
+        const fmeaRows = [['Failure Mode', 'Effect', 'Cause', 'Severity', 'Occurrence', 'Detection', 'RPN', 'Risk Band', 'Recommended Action'], ...fmea.map(f => {
+          const rpn = rpnOf(f);
+          return [f.failure_mode || '', f.effect || '', f.cause || '', f.severity || 0, f.occurrence || 0, f.detection || 0, rpn, riskBand(rpn)[0], f.recommended_action || ''];
+        })];
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fmeaRows), 'FMEA');
+      }
 
       const capaRows = [['Type', 'Title', 'Description', 'Owner', 'Target Date', 'Status', 'Verification Notes'], ...capas.map(c => [
         CAPA_TYPE[c.action_type] || c.action_type || '',
@@ -5370,6 +5401,15 @@ document.addEventListener('change', (e) => {
     render();
     return;
   }
+  if (e.target.matches('#modalHost input[name="method_timeline"], #modalHost input[name="method_whys"]')) {
+    if (!e.target.checked) {
+      const label = e.target.name === 'method_timeline' ? 'Timeline / SOE' : '5 Whys';
+      if (!window.confirm(`${label} is recommended as a minimum baseline for every RCA (Timeline / SOE & 5 Whys).\n\nAre you sure you want to turn ${label} off?`)) {
+        e.target.checked = true;
+      }
+    }
+    return;
+  }
   if (e.target.matches('#modalHost input[name="site_id"]')) {
     const saveBtn = document.querySelector('#modalHost [data-action="save-rca"]');
     const isNewRca = saveBtn && !saveBtn.dataset.id;
@@ -5406,6 +5446,15 @@ document.addEventListener('change', (e) => {
       if (voltEl && tpl.voltage_class) voltEl.value = tpl.voltage_class;
       const probEl = document.querySelector('#modalHost [name="problem_statement"]');
       if (probEl && tpl.problem_statement && !probEl.value.trim()) probEl.value = tpl.problem_statement;
+    }
+    return;
+  }
+  if (e.target.matches('#modalHost input[name="method_timeline"], #modalHost input[name="method_whys"]')) {
+    if (!e.target.checked) {
+      const label = e.target.name === 'method_timeline' ? 'Timeline / SOE' : '5 Whys';
+      if (!window.confirm(`${label} is recommended as a minimum baseline for every RCA (Timeline / SOE & 5 Whys).\n\nAre you sure you want to turn ${label} off?`)) {
+        e.target.checked = true;
+      }
     }
     return;
   }
