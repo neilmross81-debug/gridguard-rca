@@ -2055,7 +2055,7 @@ function tabOverview(i) {
       <div class="card card-pad">
         <dl class="kv">
           <dt>Document ID</dt><dd class="mono">${esc(i.document_code)}</dd>
-          ${getInvMeta(i.id).sap_ref ? `<dt>SAP Notifications / WOs</dt><dd><div class="chip-row">${renderSapBadges(getInvMeta(i.id).sap_ref)}</div></dd>` : ''}
+          ${getInvMeta(i.id).sap_ref ? `<dt>${IS_RWE_WEB ? 'SAP Notifications / WOs' : 'Work Orders / CMMS'}</dt><dd><div class="chip-row">${renderSapBadges(getInvMeta(i.id).sap_ref)}</div></dd>` : ''}
           <dt>Facility / Site</dt><dd>${esc(i.facility_name)}</dd>
           <dt>Asset category</dt><dd>${esc(ASSET[i.asset_category] || i.asset_category || '—')}</dd>
           <dt>Equipment tag</dt><dd class="mono">${esc(i.equipment_tag || '—')}</dd>
@@ -2740,7 +2740,7 @@ function tabReport(i) {
 
         <dl class="kv" style="margin-top:20px">
           <dt>Document ID</dt><dd class="mono">${esc(i.document_code)}</dd>
-          ${getInvMeta(i.id).sap_ref ? `<dt>SAP Notifications / WOs</dt><dd><div class="chip-row">${renderSapBadges(getInvMeta(i.id).sap_ref)}</div></dd>` : ''}
+          ${getInvMeta(i.id).sap_ref ? `<dt>${IS_RWE_WEB ? 'SAP Notifications / WOs' : 'Work Orders / CMMS'}</dt><dd><div class="chip-row">${renderSapBadges(getInvMeta(i.id).sap_ref)}</div></dd>` : ''}
           <dt>Facility / Site</dt><dd>${esc(i.facility_name || '—')}</dd>
           <dt>Asset hierarchy</dt><dd>${esc(ASSET[i.asset_category] || '—')}</dd>
           <dt>Equipment tag</dt><dd class="mono">${esc(i.equipment_tag || '—')}</dd>
@@ -3228,7 +3228,7 @@ function rcaForm(i) {
       </div>
       <div class="form-grid">
         <div class="field col-span-2">
-          <label>SAP Notifications &amp; Work Orders (optional — add multiple)</label>
+          <label>${IS_RWE_WEB ? 'SAP Notifications &amp; Work Orders (optional — add multiple)' : 'Work Orders &amp; CMMS References (optional — add multiple)'}</label>
           <input type="hidden" name="sap_ref" id="sapRefHidden" value="${esc(i ? (getInvMeta(i.id).sap_ref || '') : '')}">
           <div id="sapChipList" class="chip-row" style="margin-bottom:8px;min-height:24px">${renderSapEditorChips(i ? (getInvMeta(i.id).sap_ref || '') : '')}</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -3892,7 +3892,8 @@ function proModal(reason = '') {
         <div class="eyebrow" style="margin-bottom:8px">Everything included in TotalRCA Pro</div>
         <ul style="margin:0;padding-left:18px;font-size:13.5px;line-height:1.7;color:var(--ink)">
           <li><strong>Unlimited RCAs &amp; CAPA Actions</strong> stored locally offline on your phone</li>
-          <li><strong>Unbranded PDF &amp; Excel Exports</strong> + Timeline spreadsheet import</li>
+          <li><strong>6 Analysis Methods</strong> — Timeline, 5 Whys, Ishikawa 6M, Fault Tree (FTA), Barrier Analysis (Swiss-Cheese) &amp; FMEA</li>
+          <li><strong>Executive Word (.docx), PowerPoint (.pptx), Excel (.xlsx) &amp; PDF Exports</strong> + Timeline spreadsheet import</li>
           <li><strong>Bring Your Own Database (Team Sync)</strong> — connect your own Supabase, Google Apps Script, or custom REST endpoint</li>
           <li><strong>All Industry Templates</strong> — Mechanical, Electrical, Manufacturing, IT/Ops &amp; HV</li>
         </ul>
@@ -4934,6 +4935,7 @@ function methodGuideModal() {
     save(); render();
   },
   'export-inv-register': async () => {
+    if (!isPro()) { openProModal('Excel Register Export'); return; }
     if (!window.XLSX) {
       toast('Loading Excel generator…');
       try { await ensureVendor('XLSX', 'assets/vendor/xlsx.full.min.js'); } catch (err) { toast('Could not load Excel generator'); return; }
@@ -4966,6 +4968,7 @@ function methodGuideModal() {
     toast('Investigations register exported (.xlsx)');
   },
   'export-capa-register': async () => {
+    if (!isPro()) { openProModal('Excel CAPA Register Export'); return; }
     if (!window.XLSX) {
       toast('Loading Excel generator…');
       try { await ensureVendor('XLSX', 'assets/vendor/xlsx.full.min.js'); } catch (err) { toast('Could not load Excel generator'); return; }
