@@ -99,6 +99,21 @@
               radial-gradient(circle at 82% 80%, rgba(29, 66, 118, 0.12), transparent 50%),
               var(--bg);
 }
+:root[data-brand="rwe"] .landing-title {
+  color: #1D4276;
+}
+:root[data-brand="rwe"] .landing-sub {
+  color: #526780;
+}
+:root[data-brand="rwe"] .login-card {
+  border-color: var(--line-strong);
+  box-shadow: 0 12px 32px rgba(29, 66, 118, 0.10);
+}
+:root[data-brand="rwe"] .landing-feat {
+  color: #1D4276;
+  background: #FFFFFF;
+  border-color: #C6D0DD;
+}
 :root[data-brand="rwe"] .nav-link.on {
   color: #1D4276;
   border-bottom-color: #00B38D;
