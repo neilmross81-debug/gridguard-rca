@@ -445,15 +445,15 @@ function renderSapEditorChips(raw) {
 
 function getAuditLogs(invId) {
   const s = (typeof DB !== 'undefined' && DB && DB.app_settings) || {};
-  const map = (s.audit_logs && typeof s.audit_logs === 'object') ? s.audit_logs : {};
+  const map = (s.audit_logs_v2 && typeof s.audit_logs_v2 === 'object') ? s.audit_logs_v2 : {};
   return Array.isArray(map[invId]) ? map[invId] : [];
 }
 
 function recordAudit(invId, action, detail = '') {
   if (!invId || typeof DB === 'undefined' || !DB) return;
   if (!DB.app_settings || typeof DB.app_settings !== 'object') DB.app_settings = {};
-  if (!DB.app_settings.audit_logs || typeof DB.app_settings.audit_logs !== 'object') DB.app_settings.audit_logs = {};
-  const list = Array.isArray(DB.app_settings.audit_logs[invId]) ? DB.app_settings.audit_logs[invId] : [];
+  if (!DB.app_settings.audit_logs_v2 || typeof DB.app_settings.audit_logs_v2 !== 'object') DB.app_settings.audit_logs_v2 = {};
+  const list = Array.isArray(DB.app_settings.audit_logs_v2[invId]) ? DB.app_settings.audit_logs_v2[invId] : [];
   const u = typeof currentUser === 'function' ? currentUser() : null;
   list.unshift({
     at: new Date().toISOString(),
@@ -461,7 +461,7 @@ function recordAudit(invId, action, detail = '') {
     action,
     detail,
   });
-  DB.app_settings.audit_logs[invId] = list.slice(0, 40);
+  DB.app_settings.audit_logs_v2[invId] = list.slice(0, 40);
 }
 
 /* ---------- store ---------- */
@@ -571,6 +571,9 @@ function seed() {
 let DB = null;
 
 function ensureSitesAndUsers(pushToCloud = false) {
+  if (DB && DB.app_settings && DB.app_settings.audit_logs) {
+    delete DB.app_settings.audit_logs;
+  }
   const defaults = seed();
   if (!Array.isArray(DB.sites) || DB.sites.length === 0) {
     DB.sites = defaults.sites.map(s => Object.assign({}, s));
@@ -2083,7 +2086,10 @@ function tabOverview(i) {
           const logs = getAuditLogs(i.id);
           if (!logs.length) return '';
           return `<div class="divider"></div>
-            <div class="eyebrow" style="margin-bottom:8px">Audit &amp; Revision History</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div class="eyebrow">Audit &amp; Revision History</div>
+              ${editable ? `<button type="button" class="btn btn-ghost btn-sm no-print" data-action="clear-audit-log" data-id="${i.id}" style="font-size:11.5px;padding:2px 8px">Clear history</button>` : ''}
+            </div>
             <div style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto">
               ${logs.slice(0, 10).map(l => `<div style="font-size:12.5px;display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding-bottom:4px">
                 <span><strong>${esc(l.action)}</strong>${l.detail ? ` — <span class="muted">${esc(l.detail)}</span>` : ''} <span class="dim">by ${esc(l.user)}</span></span>
@@ -4915,6 +4921,14 @@ function methodGuideModal() {
     hid.value = merged.join(', ');
     host.innerHTML = renderSapEditorChips(hid.value);
     toast(`Detected ${found.length} SAP reference(s) from investigation records`);
+  },
+  'clear-audit-log': (el) => {
+    const invId = el.dataset.id;
+    if (!requireEdit(invId)) return;
+    if (DB.app_settings && DB.app_settings.audit_logs_v2) {
+      delete DB.app_settings.audit_logs_v2[invId];
+    }
+    save(); render(); toast('Audit & revision history cleared');
   },
   'signoff-rca': (el) => {
     const invId = el.dataset.id;
