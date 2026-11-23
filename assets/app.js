@@ -1517,12 +1517,13 @@ function viewDashboard() {
   const fmeas = (DB.fmea_items || []).filter(f => invIds.has(f.investigation_id));
   const openCapas = capas.filter(c => c.status === 'open' || c.status === 'inProgress');
   const closedCapas = capas.filter(c => c.status === 'verified' || c.status === 'closed');
-  const inProgCapas = capas.filter(c => c.status === 'inProgress');
-  const pendingCapas = capas.filter(c => c.status === 'open');
   const nowMs = Date.now();
-  const overdueCapas = openCapas.filter(c => c.target_date && new Date(c.target_date).getTime() < nowMs);
+  const isOverdue = (c) => Boolean(c.target_date && new Date(c.target_date).getTime() < nowMs && c.status !== 'verified' && c.status !== 'closed');
+  const overdueCapas = openCapas.filter(isOverdue);
+  const onTrackInProg = capas.filter(c => c.status === 'inProgress' && !isOverdue(c));
+  const onTrackOpen = capas.filter(c => c.status === 'open' && !isOverdue(c));
   const dueSoonCapas = openCapas.filter(c => {
-    if (!c.target_date) return false;
+    if (!c.target_date || isOverdue(c)) return false;
     const t = new Date(c.target_date).getTime();
     return t >= nowMs && t <= nowMs + 7 * 86400000;
   });
@@ -1551,11 +1552,12 @@ function viewDashboard() {
   const minPct = Math.round((minCount / totalInvs) * 100);
   const negPct = Math.round((negCount / totalInvs) * 100);
 
-  // CAPA health metrics for BI bar
+  // CAPA health metrics for BI bar (mutually exclusive segments)
   const totalCapas = capas.length || 1;
   const closedPct = Math.round((closedCapas.length / totalCapas) * 100);
-  const inProgPct = Math.round((inProgCapas.length / totalCapas) * 100);
-  const pendingPct = Math.round((pendingCapas.length / totalCapas) * 100);
+  const overduePct = Math.round((overdueCapas.length / totalCapas) * 100);
+  const inProgPct = Math.round((onTrackInProg.length / totalCapas) * 100);
+  const pendingPct = Math.max(0, 100 - (closedPct + overduePct + inProgPct));
 
   const stat = (tone, ic, value, label, foot) => `
     <div class="stat tone-${tone}">
@@ -1716,16 +1718,17 @@ function viewDashboard() {
         <span class="bi-sub">${capas.length} total action${capas.length === 1 ? '' : 's'}</span>
       </div>
       <div class="bi-bar" title="CAPA status breakdown">
-        ${closedCapas.length ? `<div class="bi-seg" style="width:${closedPct}%;background:#00B38D" title="Closed: ${closedCapas.length} (${closedPct}%)"></div>` : ''}
-        ${inProgCapas.length ? `<div class="bi-seg" style="width:${inProgPct}%;background:#1D4276" title="In Progress: ${inProgCapas.length} (${inProgPct}%)"></div>` : ''}
-        ${pendingCapas.length ? `<div class="bi-seg" style="width:${pendingPct}%;background:#94A3B8" title="Open: ${pendingCapas.length} (${pendingPct}%)"></div>` : ''}
+        ${closedCapas.length ? `<div class="bi-seg" style="width:${closedPct}%;background:#00B38D" title="Closed / Verified: ${closedCapas.length} (${closedPct}%)"></div>` : ''}
+        ${onTrackInProg.length ? `<div class="bi-seg" style="width:${inProgPct}%;background:#1D4276" title="In Progress (On Track): ${onTrackInProg.length} (${inProgPct}%)"></div>` : ''}
+        ${onTrackOpen.length ? `<div class="bi-seg" style="width:${pendingPct}%;background:#94A3B8" title="Open (On Track): ${onTrackOpen.length} (${pendingPct}%)"></div>` : ''}
+        ${overdueCapas.length ? `<div class="bi-seg" style="width:${overduePct}%;background:#C50F1F" title="Overdue: ${overdueCapas.length} (${overduePct}%)"></div>` : ''}
         ${!capas.length ? `<div class="bi-seg" style="width:100%;background:#E2E8F0"></div>` : ''}
       </div>
       <div class="bi-legend">
         <div class="bi-legend-item"><span class="bi-dot" style="background:#00B38D"></span><span>Closed / Verified</span> <span class="bi-count">${closedCapas.length}</span></div>
-        <div class="bi-legend-item"><span class="bi-dot" style="background:#1D4276"></span><span>In Progress</span> <span class="bi-count">${inProgCapas.length}</span></div>
-        <div class="bi-legend-item"><span class="bi-dot" style="background:#94A3B8"></span><span>Open</span> <span class="bi-count">${pendingCapas.length}</span></div>
-        <div class="bi-legend-item"><span class="bi-dot" style="background:#C50F1F"></span><span>Overdue</span> <span class="bi-count" style="color:var(--red)">${overdueCapas.length}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#1D4276"></span><span>In Progress</span> <span class="bi-count">${onTrackInProg.length}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#94A3B8"></span><span>Open</span> <span class="bi-count">${onTrackOpen.length}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#C50F1F"></span><span style="${overdueCapas.length ? 'color:#C50F1F;font-weight:600' : ''}">Overdue</span> <span class="bi-count" style="${overdueCapas.length ? 'color:#C50F1F' : ''}">${overdueCapas.length}</span></div>
       </div>
     </div>
   </div>
