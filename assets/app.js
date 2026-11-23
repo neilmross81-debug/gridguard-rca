@@ -1516,6 +1516,9 @@ function viewDashboard() {
   const capas = filteredCapas();
   const fmeas = (DB.fmea_items || []).filter(f => invIds.has(f.investigation_id));
   const openCapas = capas.filter(c => c.status === 'open' || c.status === 'inProgress');
+  const closedCapas = capas.filter(c => c.status === 'verified' || c.status === 'closed');
+  const inProgCapas = capas.filter(c => c.status === 'inProgress');
+  const pendingCapas = capas.filter(c => c.status === 'open');
   const nowMs = Date.now();
   const overdueCapas = openCapas.filter(c => c.target_date && new Date(c.target_date).getTime() < nowMs);
   const dueSoonCapas = openCapas.filter(c => {
@@ -1533,6 +1536,27 @@ function viewDashboard() {
     return acc;
   }, { mwh: 0, cost: 0 }) : { mwh: 0, cost: 0 };
 
+  const capaCloseRate = capas.length ? Math.round((closedCapas.length / capas.length) * 100) : 100;
+
+  // Severity metrics for BI distribution bar
+  const totalInvs = invs.length || 1;
+  const catCount = invs.filter(i => i.severity === 'catastrophic').length;
+  const critCount = invs.filter(i => i.severity === 'critical').length;
+  const majCount = invs.filter(i => i.severity === 'major').length;
+  const minCount = invs.filter(i => i.severity === 'minor').length;
+  const negCount = invs.filter(i => i.severity === 'negligible').length;
+  const catPct = Math.round((catCount / totalInvs) * 100);
+  const critPct = Math.round((critCount / totalInvs) * 100);
+  const majPct = Math.round((majCount / totalInvs) * 100);
+  const minPct = Math.round((minCount / totalInvs) * 100);
+  const negPct = Math.round((negCount / totalInvs) * 100);
+
+  // CAPA health metrics for BI bar
+  const totalCapas = capas.length || 1;
+  const closedPct = Math.round((closedCapas.length / totalCapas) * 100);
+  const inProgPct = Math.round((inProgCapas.length / totalCapas) * 100);
+  const pendingPct = Math.round((pendingCapas.length / totalCapas) * 100);
+
   const stat = (tone, ic, value, label, foot) => `
     <div class="stat tone-${tone}">
       <div class="stat-top"><span class="stat-icon">${icon(ic)}</span><span class="stat-label">${label}</span></div>
@@ -1540,83 +1564,265 @@ function viewDashboard() {
       <div class="stat-foot">${foot}</div>
     </div>`;
 
-  const rows = invs
-    .slice().sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
-    .map(i => rcaRow(i)).join('') || `<div class="empty"><strong>No investigations visible</strong>No RCAs match your site access or current filter.</div>`;
+  // Top 3 recent investigations (spotlight)
+  const recentInvs = invs
+    .slice()
+    .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
+    .slice(0, 3);
 
-  const capaRows = openCapas
-    .slice().sort((a, b) => new Date(a.target_date || 0) - new Date(b.target_date || 0))
-    .map(c => {
-      const inv = invById(c.investigation_id);
-      const overdue = c.target_date && new Date(c.target_date) < new Date() && c.status !== 'verified';
-      return `<div class="rca-row compact" data-goto="#/investigations/${c.investigation_id}/capa">
-        <div>
-          <div class="rca-title" style="font-size:14px">${esc(c.description).slice(0, 118)}${c.description.length > 118 ? '…' : ''}</div>
-          <div class="rca-meta"><span>${esc(c.owner || 'Unassigned')}</span><span>${esc(inv ? inv.document_code : '')}</span><span>Due ${fmtDate(c.target_date)}</span></div>
+  const spotlightInvRows = recentInvs.length ? recentInvs.map(i => {
+    const site = siteById(i.site_id);
+    return `<div class="spotlight-item" data-goto="#/investigations/${i.id}/overview">
+      <div style="display:flex;align-items:flex-start;gap:10px;min-width:0">
+        <div style="flex:none;margin-top:2px">${sevChip(i.severity)}</div>
+        <div style="min-width:0">
+          <div class="rca-title" style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(i.title)}</div>
+          <div class="rca-meta" style="margin-top:2px;font-size:11.5px">
+            <span class="mono" style="font-weight:600;color:var(--accent)">${esc(i.document_code)}</span>
+            <span>${esc(site ? site.code : '—')}</span>
+            <span>${esc(i.equipment_tag || i.facility_name || '')}</span>
+          </div>
         </div>
-        <div class="chip-row">${chip(CAPA_TYPE[c.type] || c.type, c.type === 'preventive' ? 'cyan' : 'accent')}${overdue ? chip('Overdue', 'red') : capaChip(c.status)}</div>
-      </div>`;
-    }).join('') || `<div class="empty"><strong>No open actions</strong>Every corrective and preventive action is closed out.</div>`;
+      </div>
+      <div style="flex:none">${chip(STATUS[i.status] ? STATUS[i.status].label : i.status, i.status === 'inReview' ? 'amber' : i.status === 'closed' ? 'green' : 'cyan')}</div>
+    </div>`;
+  }).join('') : `<div class="empty" style="padding:24px 12px"><strong>No investigations found</strong>No RCAs match your current site or filter.</div>`;
+
+  // Top 3 priority actions (overdue or nearest due)
+  const priorityCapas = openCapas
+    .slice()
+    .sort((a, b) => {
+      const aTime = a.target_date ? new Date(a.target_date).getTime() : 9999999999999;
+      const bTime = b.target_date ? new Date(b.target_date).getTime() : 9999999999999;
+      return aTime - bTime;
+    })
+    .slice(0, 3);
+
+  const spotlightCapaRows = priorityCapas.length ? priorityCapas.map(c => {
+    const inv = invById(c.investigation_id);
+    const overdue = c.target_date && new Date(c.target_date).getTime() < nowMs && c.status !== 'verified' && c.status !== 'closed';
+    return `<div class="spotlight-item" data-goto="#/investigations/${c.investigation_id}/capa">
+      <div style="min-width:0;flex:1">
+        <div class="rca-title" style="font-size:13px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.description)}</div>
+        <div class="rca-meta" style="margin-top:3px;font-size:11.5px">
+          <span>${esc(c.owner || 'Unassigned')}</span>
+          <span class="mono">${esc(inv ? inv.document_code : '')}</span>
+          <span>Due ${fmtDate(c.target_date)}</span>
+        </div>
+      </div>
+      <div class="chip-row" style="flex:none">
+        ${chip(CAPA_TYPE[c.type] || c.type, c.type === 'preventive' ? 'cyan' : 'accent')}
+        ${overdue ? chip('Overdue', 'red') : capaChip(c.status)}
+      </div>
+    </div>`;
+  }).join('') : `<div class="empty" style="padding:24px 12px"><strong>No priority actions</strong>All corrective &amp; preventive actions are on schedule.</div>`;
 
   const me = currentUser();
   const hasAnySiteOrRca = accessibleSites(me).length > 0 || invs.length > 0;
   const pendingBanner = !hasAnySiteOrRca
     ? `<div class="prompt-box" style="margin-bottom:18px;border-left:3px solid var(--amber)">
         <div class="prompt-box-title">Pending Site Assignment</div>
-        <div style="font-size:13.5px;color:var(--ink-2)">Your <strong>Editor</strong> account (<code>@${esc(me?.username || '')}</code>) is active, but no operational sites or RCAs have been assigned to you yet. Once an Administrator assigns you a site in <strong>Sites &amp; Users</strong>, you will be able to create RCAs and view or edit RCAs for that site.</div>
+        <div style="font-size:13.5px;color:var(--ink-2)">Your account (<code>@${esc(me?.username || '')}</code>) is active, but no operational sites or RCAs have been assigned yet. A Site Administrator can grant you access in <strong>Sites &amp; Users</strong>.</div>
       </div>`
     : '';
 
   return `
-  <div class="page-head">
-    <div>
-      <div class="eyebrow">Operations Overview</div>
-      <h1 class="display">Root cause intelligence<br>for HV &amp; renewable assets.</h1>
-      <p class="lede">Structured 5 Whys, Ishikawa 6M and FMEA analysis with a tracked corrective action plan — scoped to your assigned sites and RCAs.</p>
+  <!-- Executive BI Hero Banner -->
+  <div class="dash-hero">
+    <div class="dash-hero-main">
+      <div class="dash-hero-eyebrow">
+        <span class="dash-pulse-dot"></span>
+        <span>RWE Generation &amp; Renewables · Fleet Operations Intelligence</span>
+      </div>
+      <h1 class="dash-hero-title">Operational Reliability Dashboard</h1>
+      <p class="dash-hero-sub">Executive oversight, fault severity distribution, and CAPA resolution tracking across operational assets.</p>
     </div>
-    <div class="page-actions">
+    <div class="dash-hero-actions">
       ${siteFilterSelect()}
-      <button class="btn" data-route="#/investigations">Open register</button>
-      <button class="btn" data-action="print-dashboard">${icon('print')} Export</button>
+      <button class="btn btn-primary" data-action="new-rca">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        New RCA
+      </button>
+      <button class="btn" data-action="open-guide" title="RCA Methodology &amp; Field Guide">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px">
+          <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>
+        </svg>
+        Guide
+      </button>
+      <button class="btn" data-action="print-dashboard" title="Export executive dashboard summary">
+        ${icon('print')} Export
+      </button>
     </div>
   </div>
+
   ${pendingBanner}
+
   ${(overdueCapas.length || dueSoonCapas.length) ? `
-  <div class="coach-banner" style="margin-bottom:18px;border-color:${overdueCapas.length ? '#F1B0B7' : '#F4C790'};background:${overdueCapas.length ? 'var(--red-soft)' : 'var(--amber-soft)'}">
+  <div class="coach-banner" style="margin-bottom:20px;border-color:${overdueCapas.length ? '#F1B0B7' : '#F4C790'};background:${overdueCapas.length ? 'var(--red-soft)' : 'var(--amber-soft)'}">
     <div class="coach-text">
-      <strong>CAPA Schedule Alert:</strong>
-      ${overdueCapas.length ? `<span style="color:var(--red);font-weight:600">${overdueCapas.length} overdue</span>` : ''}
+      <strong>Action Required:</strong>
+      ${overdueCapas.length ? `<span style="color:var(--red);font-weight:700">${overdueCapas.length} overdue CAPA${overdueCapas.length > 1 ? 's' : ''}</span>` : ''}
       ${overdueCapas.length && dueSoonCapas.length ? ' · ' : ''}
       ${dueSoonCapas.length ? `<span>${dueSoonCapas.length} due within 7 days</span>` : ''}
     </div>
-    <button class="btn btn-sm" data-route="#/capas">Review CAPAs</button>
+    <button class="btn btn-sm" data-route="#/capas">Review CAPA Tracker &rarr;</button>
   </div>` : ''}
 
+  <!-- Top-tier 4 KPI Metrics -->
   <div class="stats">
-    ${stat('cyan',  'clipboard', invs.length, 'Accessible RCAs', `${invs.filter(i => i.status === 'inReview').length} awaiting review`)}
-    ${stat('red',   'alert',     critical.length, 'Active Critical', `${critical.filter(i => i.status !== 'closed').length} still open`)}
-    ${stat('amber', 'clock',     openCapas.length, 'Open CAPAs', `${overdueCapas.length} overdue · ${capas.length} total`)}
+    ${stat('cyan',  'clipboard', invs.length, 'Accessible RCAs', `${invs.filter(i => i.status === 'inReview').length} awaiting review · ${invs.filter(i => i.status === 'inProgress').length} in progress`)}
+    ${stat('red',   'alert',     critical.length, 'Critical Faults', `${critical.filter(i => i.status !== 'closed').length} active · ${catCount} catastrophic`)}
+    ${stat('amber', 'clock',     `${capaCloseRate}%`, 'CAPA Close Rate', `${closedCapas.length} / ${capas.length} closed · ${overdueCapas.length} overdue`)}
     ${genEnabled
-      ? stat('slate', 'chart', `${totalGen.mwh.toLocaleString(undefined, { maximumFractionDigits: 1 })} MWh`, 'Lost Generation', `Est. ${getGenCurrency()}${Math.round(totalGen.cost).toLocaleString()} curtailment`)
+      ? stat('slate', 'chart', `${totalGen.mwh.toLocaleString(undefined, { maximumFractionDigits: 1 })} MWh`, 'Generation Impact', `Est. ${getGenCurrency()}${Math.round(totalGen.cost).toLocaleString()} curtailment consequence`)
       : stat('slate', 'chart', highRpn.length, 'High RPN (≥100)', `Assessed across ${fmeas.length} failure modes`)}
   </div>
 
-  <div class="grid-2">
-    <section class="section" style="margin-bottom:0">
-      <div class="section-head">
-        <div><h2 class="h3">Investigations</h2><p>Most recently updated first</p></div>
-        <button class="btn btn-ghost btn-sm" data-route="#/investigations">View all</button>
+  <!-- BI Visual Distribution Row -->
+  <div class="bi-grid">
+    <!-- Severity Profile Bar -->
+    <div class="bi-card">
+      <div class="bi-head">
+        <span class="bi-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;color:var(--accent)"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>
+          Fleet Fault Severity Profile
+        </span>
+        <span class="bi-sub">${invs.length} record${invs.length === 1 ? '' : 's'}</span>
       </div>
-      <div class="card"><div class="rca-list">${rows}</div></div>
-    </section>
+      <div class="bi-bar" title="Severity breakdown">
+        ${catCount ? `<div class="bi-seg" style="width:${catPct}%;background:#C50F1F" title="Catastrophic: ${catCount} (${catPct}%)"></div>` : ''}
+        ${critCount ? `<div class="bi-seg" style="width:${critPct}%;background:#EA580C" title="Critical: ${critCount} (${critPct}%)"></div>` : ''}
+        ${majCount ? `<div class="bi-seg" style="width:${majPct}%;background:#D97706" title="Major: ${majCount} (${majPct}%)"></div>` : ''}
+        ${minCount ? `<div class="bi-seg" style="width:${minPct}%;background:#00B38D" title="Minor: ${minCount} (${minPct}%)"></div>` : ''}
+        ${negCount ? `<div class="bi-seg" style="width:${negPct}%;background:#64748B" title="Negligible: ${negCount} (${negPct}%)"></div>` : ''}
+        ${!invs.length ? `<div class="bi-seg" style="width:100%;background:#E2E8F0"></div>` : ''}
+      </div>
+      <div class="bi-legend">
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#C50F1F"></span><span>Catastrophic</span> <span class="bi-count">${catCount}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#EA580C"></span><span>Critical</span> <span class="bi-count">${critCount}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#D97706"></span><span>Major</span> <span class="bi-count">${majCount}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#00B38D"></span><span>Minor</span> <span class="bi-count">${minCount}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#64748B"></span><span>Negligible</span> <span class="bi-count">${negCount}</span></div>
+      </div>
+    </div>
 
-    <section class="section" style="margin-bottom:0">
-      <div class="section-head">
-        <div><h2 class="h3">Open CAPA actions</h2><p>Ordered by target date</p></div>
-        <button class="btn btn-ghost btn-sm" data-route="#/capas">View all</button>
+    <!-- CAPA Lifecycle Progress Bar -->
+    <div class="bi-card">
+      <div class="bi-head">
+        <span class="bi-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;color:#00B38D"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          CAPA Implementation Health
+        </span>
+        <span class="bi-sub">${capas.length} total action${capas.length === 1 ? '' : 's'}</span>
       </div>
-      <div class="card"><div class="rca-list">${capaRows}</div></div>
-    </section>
+      <div class="bi-bar" title="CAPA status breakdown">
+        ${closedCapas.length ? `<div class="bi-seg" style="width:${closedPct}%;background:#00B38D" title="Closed: ${closedCapas.length} (${closedPct}%)"></div>` : ''}
+        ${inProgCapas.length ? `<div class="bi-seg" style="width:${inProgPct}%;background:#1D4276" title="In Progress: ${inProgCapas.length} (${inProgPct}%)"></div>` : ''}
+        ${pendingCapas.length ? `<div class="bi-seg" style="width:${pendingPct}%;background:#94A3B8" title="Open: ${pendingCapas.length} (${pendingPct}%)"></div>` : ''}
+        ${!capas.length ? `<div class="bi-seg" style="width:100%;background:#E2E8F0"></div>` : ''}
+      </div>
+      <div class="bi-legend">
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#00B38D"></span><span>Closed / Verified</span> <span class="bi-count">${closedCapas.length}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#1D4276"></span><span>In Progress</span> <span class="bi-count">${inProgCapas.length}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#94A3B8"></span><span>Open</span> <span class="bi-count">${pendingCapas.length}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#C50F1F"></span><span>Overdue</span> <span class="bi-count" style="color:var(--red)">${overdueCapas.length}</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spotlight Row: Recent Investigations & Action Focus (Top 3 Only) -->
+  <div class="grid-2">
+    <!-- Spotlight Investigations -->
+    <div class="spotlight-card">
+      <div class="spotlight-head">
+        <div>
+          <h3>Recent Active Investigations</h3>
+          <p class="muted" style="margin:2px 0 0;font-size:12px">Latest records requiring engineering attention</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" data-route="#/investigations" style="font-size:12px">Register &rarr;</button>
+      </div>
+      <div class="spotlight-body">
+        ${spotlightInvRows}
+      </div>
+      <div class="spotlight-foot">
+        <button class="btn btn-ghost btn-sm" data-route="#/investigations" style="width:100%;justify-content:center">
+          Open Full Investigations Register (${invs.length}) &rarr;
+        </button>
+      </div>
+    </div>
+
+    <!-- Spotlight Priority CAPAs -->
+    <div class="spotlight-card">
+      <div class="spotlight-head">
+        <div>
+          <h3>Priority Action Focus</h3>
+          <p class="muted" style="margin:2px 0 0;font-size:12px">Imminent milestones &amp; critical deadlines</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" data-route="#/capas" style="font-size:12px">CAPA Tracker &rarr;</button>
+      </div>
+      <div class="spotlight-body">
+        ${spotlightCapaRows}
+      </div>
+      <div class="spotlight-foot">
+        <button class="btn btn-ghost btn-sm" data-route="#/capas" style="width:100%;justify-content:center">
+          Open CAPA Management Center (${openCapas.length} open) &rarr;
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Methodology Launchpad Section -->
+  <div class="launchpad-section">
+    <div class="launchpad-head">
+      <h2>Investigation Methodology Launchpad</h2>
+      <p>Choose an analysis path suited to your incident scope, complexity, and failure modes.</p>
+    </div>
+    <div class="launchpad-grid">
+      <!-- 5 Whys Card -->
+      <div class="launchpad-card" data-action="open-guide">
+        <div class="launchpad-top">
+          <div class="launchpad-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg>
+          </div>
+          <span class="chip chip-teal">Linear / Component</span>
+        </div>
+        <div class="launchpad-title">5 Whys Causal Flow Tree</div>
+        <div class="launchpad-desc">Ideal for direct mechanical breakdowns, seal leaks, bearing wear, and single-cause failure chains. Includes reverse "Therefore" verification.</div>
+        <div class="launchpad-cta">
+          <span>Explore 5 Whys method</span> &rarr;
+        </div>
+      </div>
+
+      <!-- Ishikawa 6M Card -->
+      <div class="launchpad-card" data-action="open-guide">
+        <div class="launchpad-top">
+          <div class="launchpad-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          </div>
+          <span class="chip chip-blue">Multi-Factor</span>
+        </div>
+        <div class="launchpad-title">Ishikawa 6M Fishbone</div>
+        <div class="launchpad-desc">Brainstorm contributing factors across Machine, Method, Material, Manpower, Measurement, and Milieu/Environment with drill-downs to Whys.</div>
+        <div class="launchpad-cta">
+          <span>Explore Ishikawa 6M</span> &rarr;
+        </div>
+      </div>
+
+      <!-- Fault Tree & Barriers Card -->
+      <div class="launchpad-card" data-action="open-guide">
+        <div class="launchpad-top">
+          <div class="launchpad-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <span class="chip chip-amber">Logic &amp; Defense</span>
+        </div>
+        <div class="launchpad-title">Fault Tree (FTA) &amp; Barriers</div>
+        <div class="launchpad-desc">Model electrical trips, SCADA telemetry loss, and Boolean AND/OR logic gates alongside Swiss-Cheese defense barrier integrity analysis.</div>
+        <div class="launchpad-cta">
+          <span>Explore FTA &amp; Barriers</span> &rarr;
+        </div>
+      </div>
+    </div>
   </div>`;
 }
 

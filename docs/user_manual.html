@@ -713,28 +713,36 @@
 
   <h1>5. Executive Operations Dashboard</h1>
   <p>
-    The Executive Operations Dashboard provides immediate operational situational awareness for fleet leaders, station directors, and asset managers. The interface aggregates active investigations, financial/generation losses, and corrective action health across all offshore and onshore operating sites.
+    The Executive Operations Dashboard serves as the central command cockpit for fleet leaders, station directors, and reliability engineers. Designed around modern Business Intelligence (BI) principles, it provides high-level situational awareness without overwhelming users with raw data tables, orienting personnel at the beginning of their investigation journey.
   </p>
 
   <div class="figure">
     <div class="figure-img-wrap">
-      <img src="screenshots/02_dashboard.png" alt="Executive Operations Dashboard">
+      <img src="screenshots/02_dashboard.png" alt="Executive Operations BI Dashboard">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 6:</strong> Operations Dashboard displaying KPIs, Lost Generation, and CAPA Distribution</span>
-      <span class="chip chip-teal">Executive Metrics</span>
+      <span><strong>Figure 6:</strong> Executive Operations BI Dashboard — Hero Banner, KPIs, Severity &amp; CAPA Health Bars, Spotlights &amp; Launchpad</span>
+      <span class="chip chip-teal">BI Dashboard</span>
     </div>
   </div>
 
-  <h2>Dashboard Metric Breakdown</h2>
+  <h2>Executive BI Architecture Components</h2>
   <ul>
-    <li><strong>Active Investigations KPI:</strong> Live count of ongoing root cause evaluations segmented by critical, major, and minor status.</li>
-    <li><strong>Lost Generation Consequence (MWh &amp; Financial Impact):</strong> Real-time calculation of curtailment and downtime impact. The system computes generation impact based on plant rated capacity ($MW$), outage duration ($Hours$), and site capacity factor ($CF$):
+    <li><strong>Executive Hero Banner:</strong> Displays an active operational telemetry pulse indicator, site switcher dropdown, and instant action triggers (<em>+ New RCA</em>, <em>Method Guide</em>, <em>Export Summary</em>).</li>
+    <li><strong>Top-Tier Core KPIs:</strong> Four high-impact metric tiles tracking Accessible RCAs, Active Critical Faults, CAPA Close Rate (% completed vs. overdue), and Fleet Lost Generation Consequence (MWh &amp; financial impact).
       <br>$$\text{Lost Generation (MWh)} = \text{Capacity (MW)} \times \text{Duration (h)} \times \text{Capacity Factor}$$
       $$\text{Financial Consequence (£/€)} = \text{Lost Generation (MWh)} \times \text{PPA Tariff / Day-Ahead Strike Price}$$
     </li>
-    <li><strong>CAPA Health Meter:</strong> Visual progress gauge depicting open, in-progress, in-verification, and completed corrective actions. Any action exceeding its agreed completion target triggers prominent amber/red overdue indicators.</li>
-    <li><strong>Site Quick Switcher:</strong> Instant filtering between North Sea Offshore OSP-01, Rampion Offshore Windfarm, Thames Estuary Onshore Grid, and CCGT generation assets.</li>
+    <li><strong>Visual BI Distribution Analytics (Row 2):</strong>
+      <br>· <strong>Fleet Fault Severity Profile:</strong> A multi-segment proportional color bar displaying the distribution of Catastrophic (red), Critical (orange), Major (amber), Minor (teal), and Negligible (slate) faults across the fleet.
+      <br>· <strong>CAPA Implementation Health:</strong> A lifecycle progress bar showing real-time proportions of Closed/Verified, In Progress, Open, and Overdue milestones.
+    </li>
+    <li><strong>Operational Spotlight Lists (Row 3):</strong> Clean, uncluttered cards spotlighting only the <strong>Top 3 Recent Investigations</strong> and <strong>Top 3 Priority Actions</strong> with direct links to full registers.</li>
+    <li><strong>Investigation Methodology Launchpad (Row 4):</strong> A three-card quick-start guide orienting engineers on selecting the optimal methodology:
+      <br>· <em>5 Whys Flow Tree:</em> For linear component breakdowns and mechanical wear.
+      <br>· <em>Ishikawa 6M Fishbone:</em> For multi-factor human, procedural, and environmental investigations.
+      <br>· <em>Fault Tree (FTA) &amp; Barrier Defense:</em> For complex protection trips, SCADA telemetry loss, and safety barrier integrity.
+    </li>
   </ul>
 </div>
 
