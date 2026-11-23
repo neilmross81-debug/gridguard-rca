@@ -1515,15 +1515,19 @@ function viewDashboard() {
   const invIds = new Set(invs.map(i => i.id));
   const capas = filteredCapas();
   const fmeas = (DB.fmea_items || []).filter(f => invIds.has(f.investigation_id));
-  const openCapas = capas.filter(c => c.status === 'open' || c.status === 'inProgress');
-  const closedCapas = capas.filter(c => c.status === 'verified' || c.status === 'closed');
   const nowMs = Date.now();
-  const isOverdue = (c) => Boolean(c.target_date && new Date(c.target_date).getTime() < nowMs && c.status !== 'verified' && c.status !== 'closed');
-  const overdueCapas = openCapas.filter(isOverdue);
-  const onTrackInProg = capas.filter(c => c.status === 'inProgress' && !isOverdue(c));
-  const onTrackOpen = capas.filter(c => c.status === 'open' && !isOverdue(c));
-  const dueSoonCapas = openCapas.filter(c => {
-    if (!c.target_date || isOverdue(c)) return false;
+  const isClosed = (c) => c.status === 'verified' || c.status === 'closed';
+  const isOverdue = (c) => !isClosed(c) && (c.status === 'overdue' || Boolean(c.target_date && new Date(c.target_date).getTime() < nowMs));
+  const isInProgress = (c) => !isClosed(c) && !isOverdue(c) && c.status === 'inProgress';
+  const isOpen = (c) => !isClosed(c) && !isOverdue(c) && !isInProgress(c);
+
+  const closedCount = capas.filter(isClosed).length;
+  const overdueCount = capas.filter(isOverdue).length;
+  const inProgCount = capas.filter(isInProgress).length;
+  const openCount = capas.filter(isOpen).length;
+
+  const dueSoonCapas = capas.filter(c => {
+    if (isClosed(c) || isOverdue(c) || !c.target_date) return false;
     const t = new Date(c.target_date).getTime();
     return t >= nowMs && t <= nowMs + 7 * 86400000;
   });
@@ -1537,7 +1541,7 @@ function viewDashboard() {
     return acc;
   }, { mwh: 0, cost: 0 }) : { mwh: 0, cost: 0 };
 
-  const capaCloseRate = capas.length ? Math.round((closedCapas.length / capas.length) * 100) : 100;
+  const capaCloseRate = capas.length ? Math.round((closedCount / capas.length) * 100) : 100;
 
   // Severity metrics for BI distribution bar
   const totalInvs = invs.length || 1;
@@ -1552,12 +1556,12 @@ function viewDashboard() {
   const minPct = Math.round((minCount / totalInvs) * 100);
   const negPct = Math.round((negCount / totalInvs) * 100);
 
-  // CAPA health metrics for BI bar (mutually exclusive segments)
-  const totalCapas = capas.length || 1;
-  const closedPct = Math.round((closedCapas.length / totalCapas) * 100);
-  const overduePct = Math.round((overdueCapas.length / totalCapas) * 100);
-  const inProgPct = Math.round((onTrackInProg.length / totalCapas) * 100);
-  const pendingPct = Math.max(0, 100 - (closedPct + overduePct + inProgPct));
+  // CAPA health metrics for BI bar (100% mutually exclusive segments, strictly summing to total)
+  const totalCapas = capas.length;
+  const closedPct = totalCapas ? Number(((closedCount / totalCapas) * 100).toFixed(1)) : 0;
+  const overduePct = totalCapas ? Number(((overdueCount / totalCapas) * 100).toFixed(1)) : 0;
+  const inProgPct = totalCapas ? Number(((inProgCount / totalCapas) * 100).toFixed(1)) : 0;
+  const openPct = totalCapas ? Number(((openCount / totalCapas) * 100).toFixed(1)) : 0;
 
   const stat = (tone, ic, value, label, foot) => `
     <div class="stat tone-${tone}">
@@ -1590,10 +1594,15 @@ function viewDashboard() {
     </div>`;
   }).join('') : `<div class="empty" style="padding:24px 12px"><strong>No investigations found</strong>No RCAs match your current site or filter.</div>`;
 
-  // Top 3 priority actions (overdue or nearest due)
-  const priorityCapas = openCapas
+  // Top 3 priority actions (overdue first, then nearest due)
+  const priorityCapas = capas
+    .filter(c => !isClosed(c))
     .slice()
     .sort((a, b) => {
+      const aOver = isOverdue(a);
+      const bOver = isOverdue(b);
+      if (aOver && !bOver) return -1;
+      if (!aOver && bOver) return 1;
       const aTime = a.target_date ? new Date(a.target_date).getTime() : 9999999999999;
       const bTime = b.target_date ? new Date(b.target_date).getTime() : 9999999999999;
       return aTime - bTime;
@@ -1602,7 +1611,7 @@ function viewDashboard() {
 
   const spotlightCapaRows = priorityCapas.length ? priorityCapas.map(c => {
     const inv = invById(c.investigation_id);
-    const overdue = c.target_date && new Date(c.target_date).getTime() < nowMs && c.status !== 'verified' && c.status !== 'closed';
+    const overdue = isOverdue(c);
     return `<div class="spotlight-item" data-goto="#/investigations/${c.investigation_id}/capa">
       <div style="min-width:0;flex:1">
         <div class="rca-title" style="font-size:13px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.description)}</div>
@@ -1634,10 +1643,10 @@ function viewDashboard() {
     <div class="dash-hero-main">
       <div class="dash-hero-eyebrow">
         <span class="dash-pulse-dot"></span>
-        <span>RWE Generation &amp; Renewables · Fleet Operations Intelligence</span>
+        <span>RWE Generation &amp; Renewables · Root Cause &amp; Incident Intelligence</span>
       </div>
-      <h1 class="dash-hero-title">Operational Reliability Dashboard</h1>
-      <p class="dash-hero-sub">Executive oversight, fault severity distribution, and CAPA resolution tracking across operational assets.</p>
+      <h1 class="dash-hero-title">Root Cause Analysis (RCA) Operations Dashboard</h1>
+      <p class="dash-hero-sub">Fleet-wide oversight of active root cause investigations, fault severity profiles, and corrective action closeout health.</p>
     </div>
     <div class="dash-hero-actions">
       ${siteFilterSelect()}
@@ -1659,12 +1668,12 @@ function viewDashboard() {
 
   ${pendingBanner}
 
-  ${(overdueCapas.length || dueSoonCapas.length) ? `
-  <div class="coach-banner" style="margin-bottom:20px;border-color:${overdueCapas.length ? '#F1B0B7' : '#F4C790'};background:${overdueCapas.length ? 'var(--red-soft)' : 'var(--amber-soft)'}">
+  ${(overdueCount || dueSoonCapas.length) ? `
+  <div class="coach-banner" style="margin-bottom:20px;border-color:${overdueCount ? '#F1B0B7' : '#F4C790'};background:${overdueCount ? 'var(--red-soft)' : 'var(--amber-soft)'}">
     <div class="coach-text">
       <strong>Action Required:</strong>
-      ${overdueCapas.length ? `<span style="color:var(--red);font-weight:700">${overdueCapas.length} overdue CAPA${overdueCapas.length > 1 ? 's' : ''}</span>` : ''}
-      ${overdueCapas.length && dueSoonCapas.length ? ' · ' : ''}
+      ${overdueCount ? `<span style="color:var(--red);font-weight:700">${overdueCount} overdue CAPA${overdueCount > 1 ? 's' : ''}</span>` : ''}
+      ${overdueCount && dueSoonCapas.length ? ' · ' : ''}
       ${dueSoonCapas.length ? `<span>${dueSoonCapas.length} due within 7 days</span>` : ''}
     </div>
     <button class="btn btn-sm" data-route="#/capas">Review CAPA Tracker &rarr;</button>
@@ -1674,7 +1683,7 @@ function viewDashboard() {
   <div class="stats">
     ${stat('cyan',  'clipboard', invs.length, 'Accessible RCAs', `${invs.filter(i => i.status === 'inReview').length} awaiting review · ${invs.filter(i => i.status === 'inProgress').length} in progress`)}
     ${stat('red',   'alert',     critical.length, 'Critical Faults', `${critical.filter(i => i.status !== 'closed').length} active · ${catCount} catastrophic`)}
-    ${stat('amber', 'clock',     `${capaCloseRate}%`, 'CAPA Close Rate', `${closedCapas.length} / ${capas.length} closed · ${overdueCapas.length} overdue`)}
+    ${stat('amber', 'clock',     `${capaCloseRate}%`, 'CAPA Close Rate', `${closedCount} / ${totalCapas} closed · ${overdueCount} overdue`)}
     ${genEnabled
       ? stat('slate', 'chart', `${totalGen.mwh.toLocaleString(undefined, { maximumFractionDigits: 1 })} MWh`, 'Generation Impact', `Est. ${getGenCurrency()}${Math.round(totalGen.cost).toLocaleString()} curtailment consequence`)
       : stat('slate', 'chart', highRpn.length, 'High RPN (≥100)', `Assessed across ${fmeas.length} failure modes`)}
@@ -1715,20 +1724,20 @@ function viewDashboard() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;color:#00B38D"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
           CAPA Implementation Health
         </span>
-        <span class="bi-sub">${capas.length} total action${capas.length === 1 ? '' : 's'}</span>
+        <span class="bi-sub">${totalCapas} total action${totalCapas === 1 ? '' : 's'}</span>
       </div>
       <div class="bi-bar" title="CAPA status breakdown">
-        ${closedCapas.length ? `<div class="bi-seg" style="width:${closedPct}%;background:#00B38D" title="Closed / Verified: ${closedCapas.length} (${closedPct}%)"></div>` : ''}
-        ${onTrackInProg.length ? `<div class="bi-seg" style="width:${inProgPct}%;background:#1D4276" title="In Progress (On Track): ${onTrackInProg.length} (${inProgPct}%)"></div>` : ''}
-        ${onTrackOpen.length ? `<div class="bi-seg" style="width:${pendingPct}%;background:#94A3B8" title="Open (On Track): ${onTrackOpen.length} (${pendingPct}%)"></div>` : ''}
-        ${overdueCapas.length ? `<div class="bi-seg" style="width:${overduePct}%;background:#C50F1F" title="Overdue: ${overdueCapas.length} (${overduePct}%)"></div>` : ''}
-        ${!capas.length ? `<div class="bi-seg" style="width:100%;background:#E2E8F0"></div>` : ''}
+        ${closedCount ? `<div class="bi-seg" style="width:${closedPct}%;background:#00B38D" title="Closed / Verified: ${closedCount} (${closedPct}%)"></div>` : ''}
+        ${inProgCount ? `<div class="bi-seg" style="width:${inProgPct}%;background:#1D4276" title="In Progress: ${inProgCount} (${inProgPct}%)"></div>` : ''}
+        ${openCount ? `<div class="bi-seg" style="width:${openPct}%;background:#94A3B8" title="Open: ${openCount} (${openPct}%)"></div>` : ''}
+        ${overdueCount ? `<div class="bi-seg" style="width:${overduePct}%;background:#C50F1F" title="Overdue: ${overdueCount} (${overduePct}%)"></div>` : ''}
+        ${!totalCapas ? `<div class="bi-seg" style="width:100%;background:#E2E8F0"></div>` : ''}
       </div>
       <div class="bi-legend">
-        <div class="bi-legend-item"><span class="bi-dot" style="background:#00B38D"></span><span>Closed / Verified</span> <span class="bi-count">${closedCapas.length}</span></div>
-        <div class="bi-legend-item"><span class="bi-dot" style="background:#1D4276"></span><span>In Progress</span> <span class="bi-count">${onTrackInProg.length}</span></div>
-        <div class="bi-legend-item"><span class="bi-dot" style="background:#94A3B8"></span><span>Open</span> <span class="bi-count">${onTrackOpen.length}</span></div>
-        <div class="bi-legend-item"><span class="bi-dot" style="background:#C50F1F"></span><span style="${overdueCapas.length ? 'color:#C50F1F;font-weight:600' : ''}">Overdue</span> <span class="bi-count" style="${overdueCapas.length ? 'color:#C50F1F' : ''}">${overdueCapas.length}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#00B38D"></span><span>Closed / Verified</span> <span class="bi-count">${closedCount}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#1D4276"></span><span>In Progress</span> <span class="bi-count">${inProgCount}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#94A3B8"></span><span>Open</span> <span class="bi-count">${openCount}</span></div>
+        <div class="bi-legend-item"><span class="bi-dot" style="background:#C50F1F"></span><span style="${overdueCount ? 'color:#C50F1F;font-weight:600' : ''}">Overdue</span> <span class="bi-count" style="${overdueCount ? 'color:#C50F1F;font-weight:700' : ''}">${overdueCount}</span></div>
       </div>
     </div>
   </div>
