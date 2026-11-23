@@ -1777,7 +1777,7 @@ function viewDashboard() {
       </div>
       <div class="spotlight-foot">
         <button class="btn btn-ghost btn-sm" data-route="#/capas" style="width:100%;justify-content:center">
-          Open CAPA Management Center (${openCapas.length} open) &rarr;
+          Open CAPA Management Center (${totalCapas - closedCount} open) &rarr;
         </button>
       </div>
     </div>
