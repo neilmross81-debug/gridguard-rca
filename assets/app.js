@@ -4196,6 +4196,16 @@ function methodGuideModal() {
     title: 'RCA Method & Field Guide',
     width: 'wide',
     body: `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:rgba(29,66,118,0.06);border:1px solid rgba(29,66,118,0.2);border-radius:8px;margin-bottom:14px">
+        <div>
+          <div style="font-weight:700;color:var(--brand-primary,#1D4276);font-size:13.5px">Official RWE-RCA Operations &amp; Technical Manual (PDF)</div>
+          <div class="muted" style="font-size:12px">Complete 14-section manual with screenshots, logic gate schemas, Swiss-Cheese barrier mappings &amp; SOP standards.</div>
+        </div>
+        <a href="assets/docs/RWE-RCA_User_Manual.pdf" target="_blank" download="RWE-RCA_User_Manual.pdf" class="btn btn-sm btn-primary" style="text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center;gap:6px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Manual (PDF)
+        </a>
+      </div>
       <p class="muted" style="margin-top:0;font-size:13.5px">Use <strong>Timeline + 5 Whys</strong> for straightforward faults, and enable <strong>Ishikawa 6M, Fault Tree, or Barrier Analysis</strong> whenever multiple factors or failed safety/control barriers are involved.</p>
       <div class="card table-scroll" style="margin:0">
         <table class="table">

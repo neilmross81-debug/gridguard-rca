@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RWE-RCA Platform — Operations &amp; Technical User Manual</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 16mm 14mm 16mm 14mm;
+    @bottom-right {
+      content: "Page " counter(page);
+      font-size: 8.5pt;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #64748b;
+    }
+    @bottom-left {
+      content: "RWE-RCA Platform · Technical Standard SOP-2026-V2.4 · RWE Internal";
+      font-size: 8.5pt;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #64748b;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.55;
+    color: #1e293b;
+    background: #ffffff;
+  }
+
+  /* Cover Page */
+  .cover {
+    height: 100vh;
+    min-height: 260mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 30mm 20mm 20mm 20mm;
+    background: linear-gradient(145deg, #0d223f 0%, #1d4276 60%, #0d223f 100%);
+    color: #ffffff;
+    page-break-after: always;
+    position: relative;
+    box-sizing: border-box;
+  }
+  .cover::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at 80% 20%, rgba(0, 179, 141, 0.25) 0%, transparent 50%),
+                radial-gradient(circle at 10% 80%, rgba(0, 122, 255, 0.15) 0%, transparent 45%);
+    pointer-events: none;
+  }
+  .cover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid rgba(0, 179, 141, 0.6);
+    padding-bottom: 18px;
+    position: relative;
+    z-index: 1;
+  }
+  .cover-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .cover-logo-box {
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, #00B38D, #008767);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+  }
+  .cover-logo-box svg {
+    width: 28px;
+    height: 28px;
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 2.2;
+  }
+  .cover-brand-title {
+    font-size: 20pt;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: #ffffff;
+    line-height: 1.1;
+  }
+  .cover-brand-sub {
+    font-size: 9pt;
+    color: #00B38D;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .cover-doc-badge {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.25);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #e2e8f0;
+  }
+  .cover-main {
+    margin: auto 0;
+    position: relative;
+    z-index: 1;
+  }
+  .cover-eyebrow {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #00B38D;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+  }
+  .cover-title {
+    font-size: 32pt;
+    font-weight: 800;
+    line-height: 1.15;
+    margin: 0 0 16px 0;
+    letter-spacing: -0.8px;
+  }
+  .cover-tagline {
+    font-size: 13.5pt;
+    color: #cbd5e1;
+    font-weight: 300;
+    line-height: 1.45;
+    max-width: 650px;
+    margin-bottom: 28px;
+  }
+  .cover-pill-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .cover-pill {
+    background: rgba(0, 179, 141, 0.15);
+    border: 1px solid rgba(0, 179, 141, 0.4);
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 8.5pt;
+    color: #a7f3d0;
+    font-weight: 600;
+  }
+  .cover-footer {
+    border-top: 1px solid rgba(255,255,255,0.15);
+    padding-top: 18px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    font-size: 8.5pt;
+    color: #94a3b8;
+    position: relative;
+    z-index: 1;
+  }
+  .cover-footer strong {
+    color: #f1f5f9;
+    display: block;
+    font-size: 9.5pt;
+    margin-top: 2px;
+  }
+
+  /* Document Control Page */
+  .page {
+    page-break-after: always;
+    padding-top: 6mm;
+  }
+  .page:last-child {
+    page-break-after: avoid;
+  }
+
+  h1, h2, h3, h4 {
+    color: #0d223f;
+    font-weight: 700;
+    margin-top: 0;
+  }
+  h1 { font-size: 18pt; border-bottom: 2px solid #1D4276; padding-bottom: 6px; margin-bottom: 14px; }
+  h2 { font-size: 13.5pt; color: #1D4276; margin-top: 18px; margin-bottom: 8px; border-left: 3.5px solid #00B38D; padding-left: 8px; }
+  h3 { font-size: 11pt; color: #0d223f; margin-top: 14px; margin-bottom: 6px; }
+
+  p { margin: 0 0 10px 0; text-align: justify; }
+  ul, ol { margin: 0 0 12px 0; padding-left: 20px; }
+  li { margin-bottom: 4px; }
+
+  /* Callout Boxes */
+  .callout {
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin: 12px 0;
+    font-size: 9pt;
+    border-left: 4px solid #1D4276;
+    background: #f8fafc;
+  }
+  .callout.info { border-left-color: #1D4276; background: #f0f4f9; }
+  .callout.tip { border-left-color: #00B38D; background: #e6f7f3; }
+  .callout.warn { border-left-color: #f59e0b; background: #fffbeb; }
+  .callout.danger { border-left-color: #ef4444; background: #fef2f2; }
+  .callout strong { color: #0d223f; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 8.5pt;
+  }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 7px 9px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #1D4276;
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 8.5pt;
+  }
+  tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+
+  /* Screenshots & Figures */
+  .figure {
+    margin: 14px 0 16px 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f8fafc;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .figure-img-wrap {
+    width: 100%;
+    background: #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: center;
+  }
+  .figure img {
+    width: 100%;
+    max-height: 480px;
+    object-fit: contain;
+    display: block;
+  }
+  .figure-cap {
+    padding: 7px 12px;
+    font-size: 8.5pt;
+    color: #475569;
+    background: #ffffff;
+    font-weight: 500;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .figure-cap strong {
+    color: #1D4276;
+  }
+
+  /* Badges & Chips */
+  .chip {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-size: 7.5pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .chip-teal { background: #e6f7f3; color: #008767; border: 1px solid #00B38D; }
+  .chip-blue { background: #f0f4f9; color: #1D4276; border: 1px solid #1D4276; }
+  .chip-red { background: #fee2e2; color: #b91c1c; border: 1px solid #ef4444; }
+  .chip-amber { background: #fef3c7; color: #b45309; border: 1px solid #f59e0b; }
+
+  /* TOC */
+  .toc-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 5px 0;
+    border-bottom: 1px dotted #cbd5e1;
+    font-size: 9pt;
+  }
+  .toc-title { font-weight: 600; color: #1D4276; }
+  .toc-dots { flex: 1; border-bottom: 1px dotted #94a3b8; margin: 0 8px; }
+  .toc-num { color: #64748b; font-weight: 600; }
+
+  .header-tag {
+    font-size: 8pt;
+    font-weight: 700;
+    color: #00B38D;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== COVER PAGE ==================== -->
+<div class="cover">
+  <div class="cover-header">
+    <div class="cover-brand">
+      <div class="cover-logo-box">
+        <svg viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg>
+      </div>
+      <div>
+        <div class="cover-brand-title">RWE-RCA Platform</div>
+        <div class="cover-brand-sub">Generation &amp; Renewables Engineering</div>
+      </div>
+    </div>
+    <div class="cover-doc-badge">STANDARD OPERATING PROCEDURE</div>
+  </div>
+
+  <div class="cover-main">
+    <div class="cover-eyebrow">Enterprise Operational Manual</div>
+    <h1 class="cover-title">Root Cause Analysis &amp; CAPA Platform</h1>
+    <div class="cover-tagline">
+      Complete Operations, Methodology &amp; Engineering User Manual covering 5 Whys, Ishikawa 6M, Fault Tree Analysis (FTA), Swiss-Cheese Barrier Integrity, FMEA Risk Scoring, SAP PM Synchronization &amp; Digital Governance.
+    </div>
+
+    <div class="cover-pill-row">
+      <span class="cover-pill">Offshore Wind &amp; Marine Substations</span>
+      <span class="cover-pill">Thermal &amp; CCGT Fleets</span>
+      <span class="cover-pill">Battery Energy Storage (BESS)</span>
+      <span class="cover-pill">High-Voltage IEC 61850</span>
+      <span class="cover-pill">ISO 55001 / ISO 9001 Compliant</span>
+    </div>
+  </div>
+
+  <div class="cover-footer">
+    <div>
+      DOCUMENT IDENTIFIER
+      <strong>RWE-RCA-SOP-2026-V2.4</strong>
+    </div>
+    <div>
+      GOVERNANCE &amp; APPROVAL
+      <strong>Reliability Engineering Working Group</strong>
+    </div>
+    <div>
+      EFFECTIVE DATE / STATUS
+      <strong>November 2026 · Official Standard</strong>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== DOCUMENT CONTROL & TOC ==================== -->
+<div class="page">
+  <div class="header-tag">Governance &amp; Document History</div>
+  <h1>Document Control &amp; Contents</h1>
+
+  <h2>Document Control Information</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:25%">Parameter</th>
+        <th style="width:75%">Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Document Code</strong></td>
+        <td>RWE-RCA-SOP-2026-V2.4</td>
+      </tr>
+      <tr>
+        <td><strong>Classification</strong></td>
+        <td>RWE Internal · Operational &amp; Engineering Technical Standard</td>
+      </tr>
+      <tr>
+        <td><strong>Target Audience</strong></td>
+        <td>Reliability Engineers, Offshore Wind Technicians, Plant Managers, Electrical/HV Specialists, HSE Leads, Quality Auditors, Station Directors</td>
+      </tr>
+      <tr>
+        <td><strong>Standard Compliances</strong></td>
+        <td>ISO 55001 (Asset Management), ISO 9001:2015, IEC 61025 (Fault Tree Analysis), IEC 60812 (FMEA), IEC 61850 Substation Standards</td>
+      </tr>
+      <tr>
+        <td><strong>Repository &amp; Live URL</strong></td>
+        <td>https://neilmross81-debug.github.io/gridguard-rca/</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Revision History</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:12%">Version</th>
+        <th style="width:15%">Date</th>
+        <th style="width:28%">Author / Team</th>
+        <th style="width:45%">Summary of Changes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>v1.0</td>
+        <td>Jan 2026</td>
+        <td>Asset Reliability Team</td>
+        <td>Initial GridGuard release with basic 5 Whys and local-first timeline.</td>
+      </tr>
+      <tr>
+        <td>v2.0</td>
+        <td>Jun 2026</td>
+        <td>Offshore HV Taskforce</td>
+        <td>Multi-site support, Ishikawa 6M Fishbone, SAP Notification tags.</td>
+      </tr>
+      <tr>
+        <td>v2.3</td>
+        <td>Oct 2026</td>
+        <td>Digital Operations Lead</td>
+        <td>Fault Tree Analysis (FTA), Swiss-Cheese Barrier Model, FMEA RPN matrix.</td>
+      </tr>
+      <tr>
+        <td>v2.4</td>
+        <td>Nov 2026</td>
+        <td>RWE Lead Systems Architect</td>
+        <td>Full RWE corporate rebranding, Microsoft SSO authentication, automated lost generation revenue formulas, and Outlook .ics export.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Table of Contents</h2>
+  <div class="toc-row"><span class="toc-title">1. Introduction &amp; System Architecture</span><span class="toc-dots"></span><span class="toc-num">Section 1</span></div>
+  <div class="toc-row"><span class="toc-title">2. Access, Authentication &amp; Multi-Site Roles</span><span class="toc-dots"></span><span class="toc-num">Section 2</span></div>
+  <div class="toc-row"><span class="toc-title">3. Executive Operations Dashboard</span><span class="toc-dots"></span><span class="toc-num">Section 3</span></div>
+  <div class="toc-row"><span class="toc-title">4. Investigations Register &amp; Scoping</span><span class="toc-dots"></span><span class="toc-num">Section 4</span></div>
+  <div class="toc-row"><span class="toc-title">5. Sequence of Events (SOE) &amp; Timeline Module</span><span class="toc-dots"></span><span class="toc-num">Section 5</span></div>
+  <div class="toc-row"><span class="toc-title">6. 5 Whys Root Cause Analysis &amp; Flow Diagram</span><span class="toc-dots"></span><span class="toc-num">Section 6</span></div>
+  <div class="toc-row"><span class="toc-title">7. Ishikawa (6M) Fishbone Analysis</span><span class="toc-dots"></span><span class="toc-num">Section 7</span></div>
+  <div class="toc-row"><span class="toc-title">8. Fault Tree Analysis (FTA) &amp; Logic Gates</span><span class="toc-dots"></span><span class="toc-num">Section 8</span></div>
+  <div class="toc-row"><span class="toc-title">9. Swiss-Cheese Barrier Analysis</span><span class="toc-dots"></span><span class="toc-num">Section 9</span></div>
+  <div class="toc-row"><span class="toc-title">10. Failure Mode &amp; Effects Analysis (FMEA) &amp; RPN</span><span class="toc-dots"></span><span class="toc-num">Section 10</span></div>
+  <div class="toc-row"><span class="toc-title">11. CAPA Action Tracking &amp; Outlook Synchronization</span><span class="toc-dots"></span><span class="toc-num">Section 11</span></div>
+  <div class="toc-row"><span class="toc-title">12. Digital Governance, Technical Sign-offs &amp; Audit Trail</span><span class="toc-dots"></span><span class="toc-num">Section 12</span></div>
+  <div class="toc-row"><span class="toc-title">13. Reporting Suite &amp; Multi-Format Exports</span><span class="toc-dots"></span><span class="toc-num">Section 13</span></div>
+  <div class="toc-row"><span class="toc-title">14. Field Offline Resilience &amp; Troubleshooting</span><span class="toc-dots"></span><span class="toc-num">Section 14</span></div>
+</div>
+
+<!-- ==================== SECTION 1 & 2 ==================== -->
+<div class="page">
+  <div class="header-tag">Architecture &amp; Security</div>
+  <h1>1. Introduction &amp; System Architecture</h1>
+
+  <p>
+    The <strong>RWE-RCA Platform</strong> is an enterprise-grade investigation and incident intelligence application engineered specifically for RWE Generation and Renewables operating environments. Modern energy infrastructure—encompassing offshore windfarms, high-voltage offshore substation platforms (OSPs), CCGT thermal stations, and utility-scale battery energy storage systems (BESS)—demands an investigation platform that operates with absolute reliability even in bandwidth-restricted or disconnected offshore conditions.
+  </p>
+
+  <div class="callout tip">
+    <strong>Local-First Design Philosophy:</strong> The application utilizes an intelligent client-side database model that stores all investigation nodes, timeline events, fishbone branches, and CAPA actions in hardened browser storage. Field engineers on offshore wind turbines can perform full multi-method analyses with zero internet connection. When connectivity to the RWE corporate network or satellite link is re-established, the platform auto-syncs bidirectional changes to the secure enterprise cloud.
+  </div>
+
+  <h2>Key Architectural Pillars</h2>
+  <ul>
+    <li><strong>Multi-Method Investigation Suite:</strong> Seamless integration of 5 complementary industrial RCA methodologies: Sequence of Events (SOE), 5 Whys, Ishikawa 6M Fishbone, Fault Tree Analysis (FTA), and Swiss-Cheese Barrier Analysis.</li>
+    <li><strong>Enterprise SAP PM Alignment:</strong> Direct linking of SAP Plant Maintenance Notification numbers and Work Orders with automatic timeline cross-scanning.</li>
+    <li><strong>Loss Accounting Engine:</strong> Automated lost power generation (MWh) and revenue financial consequence modeling driven by site-specific capacity and tariffs.</li>
+    <li><strong>Digital Audit &amp; Governance:</strong> Formal four-tier electronic sign-off lifecycle with an immutable, tamper-evident chronological audit log.</li>
+  </ul>
+
+  <h1>2. Access, Authentication &amp; Multi-Site Roles</h1>
+  <p>
+    The platform provides seamless Single Sign-On (SSO) integration with Microsoft Azure Active Directory (Office 365 / Windows SSO), alongside evaluation account credentials for isolated maintenance and auditing environments.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/01_landing_sso.png" alt="RWE-RCA Landing and SSO Login Screen">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 1:</strong> Landing Page with Windows SSO Integration &amp; Role Presets</span>
+      <span class="chip chip-blue">Authentication</span>
+    </div>
+  </div>
+
+  <h2>User Role Hierarchy</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:20%">Role</th>
+        <th style="width:30%">Permitted Operations</th>
+        <th style="width:50%">Typical Assignment</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Global Admin</strong></td>
+        <td>Full system governance, site provisioning, user permissions, global settings, webhook automation.</td>
+        <td>Lead Operations Reliability Manager, Systems Administrator</td>
+      </tr>
+      <tr>
+        <td><strong>Site Admin / Lead</strong></td>
+        <td>Create &amp; edit investigations, assign CAPA owners, approve RCA stages, manage site personnel.</td>
+        <td>Offshore Substation Manager, Maintenance Strategy Lead</td>
+      </tr>
+      <tr>
+        <td><strong>Lead Investigator</strong></td>
+        <td>Author timeline, 5 Whys, fishbone, FTA, barrier, and FMEA models. Submit for technical review.</td>
+        <td>Senior HV Electrical Engineer, Mechanical Specialist</td>
+      </tr>
+      <tr>
+        <td><strong>Auditor / Viewer</strong></td>
+        <td>Read-only inspection, export formal PDF/Word/Excel reports, review closed audit dossiers.</td>
+        <td>HSE Compliance Inspector, Insurance Loss Adjuster</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ==================== SECTION 3 ==================== -->
+<div class="page">
+  <div class="header-tag">Executive Overview</div>
+  <h1>3. Executive Operations Dashboard</h1>
+
+  <p>
+    The Executive Operations Dashboard provides immediate operational situational awareness for fleet leaders, station directors, and asset managers. The interface aggregates active investigations, financial/generation losses, and corrective action health across all offshore and onshore operating sites.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/02_dashboard.png" alt="Executive Operations Dashboard">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 2:</strong> Operations Dashboard displaying KPIs, Lost Generation, and CAPA Distribution</span>
+      <span class="chip chip-teal">Executive Metrics</span>
+    </div>
+  </div>
+
+  <h2>Dashboard Metric Breakdown</h2>
+  <ul>
+    <li><strong>Active Investigations KPI:</strong> Live count of ongoing root cause evaluations segmented by critical, major, and minor status.</li>
+    <li><strong>Lost Generation Consequence (MWh &amp; Financial Impact):</strong> Real-time calculation of curtailment and downtime impact. The system computes generation impact based on plant rated capacity ($MW$), outage duration ($Hours$), and site capacity factor ($CF$):
+      <br>$$\text{Lost Generation (MWh)} = \text{Capacity (MW)} \times \text{Duration (h)} \times \text{Capacity Factor}$$
+      $$\text{Financial Consequence (£/€)} = \text{Lost Generation (MWh)} \times \text{PPA Tariff / Day-Ahead Strike Price}$$
+    </li>
+    <li><strong>CAPA Health Meter:</strong> Visual progress gauge depicting open, in-progress, in-verification, and completed corrective actions. Any action exceeding its agreed completion target triggers prominent amber/red overdue indicators.</li>
+    <li><strong>Site Quick Switcher:</strong> Instant filtering between North Sea Offshore OSP-01, Rampion Offshore Windfarm, Thames Estuary Onshore Grid, and CCGT generation assets.</li>
+  </ul>
+</div>
+
+<!-- ==================== SECTION 4 ==================== -->
+<div class="page">
+  <div class="header-tag">Incident Management</div>
+  <h1>4. Investigations Register &amp; Scoping</h1>
+
+  <p>
+    The Investigations Register serves as the centralized repository for all historical and active investigations across RWE operations. It is equipped with dynamic search, multi-site filtering, and SAP Plant Maintenance notification badges.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/03_investigations_register.png" alt="Investigations Register">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 3:</strong> Centralized Investigations Register with SAP Notification Tags &amp; Severity Chips</span>
+      <span class="chip chip-blue">Register</span>
+    </div>
+  </div>
+
+  <h2>Incident Scoping &amp; 5W2H Problem Definition</h2>
+  <p>
+    A robust investigation begins with an incontrovertible problem statement. The RWE-RCA Platform enforces the <strong>5W2H Framework</strong> (What, Where, When, Who, Why, How, How Much) to eliminate subjectivity prior to causal modeling.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/04_rca_overview.png" alt="Investigation Scope & Overview">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 4:</strong> Investigation Overview: SAP PM Work Order, Equipment Tag, and 5W2H Scoping</span>
+      <span class="chip chip-teal">Problem Definition</span>
+    </div>
+  </div>
+
+  <div class="callout info">
+    <strong>SAP PM Multi-Tag Integration:</strong> In the Overview tab, engineers can input multiple SAP Notification numbers (e.g., <code>SAP-NOTIF-4001928</code>) and SAP Work Orders (e.g., <code>WO-8802914</code>). The platform scans all subsequent timeline events and action items, highlighting associated SAP tags across the dossier.
+  </div>
+</div>
+
+<!-- ==================== SECTION 5 ==================== -->
+<div class="page">
+  <div class="header-tag">Chronological Reconstruction</div>
+  <h1>5. Sequence of Events (SOE) &amp; Timeline Module</h1>
+
+  <p>
+    Accurate failure analysis depends on establishing the exact chronological sequence of occurrences preceding, during, and following an upset. The Timeline / SOE module allows investigators to map millisecond-accurate SCADA alarms, protection relay trips, operator actions, and post-trip inspections.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/05_timeline_soe.png" alt="Sequence of Events SOE Timeline">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 5:</strong> Chronological Sequence of Events (SOE) with Phase Badges &amp; Alarm Details</span>
+      <span class="chip chip-blue">Sequence of Events</span>
+    </div>
+  </div>
+
+  <h2>Event Phases &amp; Evidence Linking</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:20%">Phase Classification</th>
+        <th style="width:40%">Definition &amp; Operational Scope</th>
+        <th style="width:40%">Typical Data Sources</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Pre-Fault / Baseline</strong></td>
+        <td>Operating parameters prior to initiation (ambient temp, oil pressure, line loading).</td>
+        <td>PI System historian, SCADA logs, meteorological mast data.</td>
+      </tr>
+      <tr>
+        <td><strong>Trigger Event</strong></td>
+        <td>The initial anomaly or deviation initiating the failure cascade.</td>
+        <td>Relay trip buffer, micro-switch signal, vibration trip sensor.</td>
+      </tr>
+      <tr>
+        <td><strong>Trip / Outage Event</strong></td>
+        <td>The physical disconnection, breaker opening, or plant shutdown.</td>
+        <td>Main circuit breaker auxiliary contact, IEC 61850 GOOSE message.</td>
+      </tr>
+      <tr>
+        <td><strong>Containment</strong></td>
+        <td>Immediate emergency actions taken to prevent secondary asset damage.</td>
+        <td>Fire suppression discharge, emergency isolation, offshore evacuation.</td>
+      </tr>
+      <tr>
+        <td><strong>Recovery &amp; Inspection</strong></td>
+        <td>First-response investigation, damage survey, and temporary stabilization.</td>
+        <td>Oil lab spectrometry results, borescope footage, relay event records.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip">
+    <strong>Bulk Telemetry Import:</strong> Investigators can upload raw SCADA alarm CSV or Excel files directly into the timeline. The parser automatically structures timestamps, tags, and alarm descriptions into formatted timeline nodes.
+  </div>
+</div>
+
+<!-- ==================== SECTION 6 ==================== -->
+<div class="page">
+  <div class="header-tag">Causal Modeling</div>
+  <h1>6. 5 Whys Root Cause Analysis &amp; Flow Diagram</h1>
+
+  <p>
+    The 5 Whys methodology drills down through successive layers of symptoms to expose underlying systemic and organizational deficiencies. The RWE-RCA Platform features a real-time dynamic SVG Causal Flow Tree that connects each question visually.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/06_5whys_diagram.png" alt="5 Whys Causal Flow Tree">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 6:</strong> Interactive 5 Whys Flow Tree with Reverse-Verification Logic &amp; Branching</span>
+      <span class="chip chip-teal">5 Whys Engine</span>
+    </div>
+  </div>
+
+  <h2>The "Reverse-Read" Verification Test</h2>
+  <p>
+    A critical flaw in standard 5 Whys exercises is logical disconnect between steps. The RWE-RCA platform incorporates an automated <strong>Reverse-Read ("Therefore") Logic Engine</strong>. Once the root cause is identified, the investigator verifies the causal chain in reverse:
+  </p>
+  <div class="callout info">
+    <em>"The maintenance SOP lacked torque tolerances (Root Cause)...<br>
+    <strong>THEREFORE</strong> the flange bolts were unevenly torqued...<br>
+    <strong>THEREFORE</strong> thermal expansion during peak load extruded the fluorosilicone seal...<br>
+    <strong>THEREFORE</strong> SF6 gas escaped past the pressure chamber...<br>
+    <strong>THEREFORE</strong> Bay 04 low-pressure sensor tripped the 220kV circuit breaker."</em>
+  </div>
+
+  <p>
+    If any "Therefore" statement does not hold true under peer engineering review, the branch must be restructured before moving to CAPA formation.
+  </p>
+</div>
+
+<!-- ==================== SECTION 7 ==================== -->
+<div class="page">
+  <div class="header-tag">Multi-Vector Analysis</div>
+  <h1>7. Ishikawa (6M) Fishbone Analysis</h1>
+
+  <p>
+    For multifaceted industrial breakdowns involving equipment, human factors, and environmental extremes, the <strong>Ishikawa 6M Diagram</strong> ensures no causal domain is overlooked.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/07_ishikawa_fishbone.png" alt="Ishikawa 6M Fishbone Analysis">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 7:</strong> Ishikawa 6M Fishbone Diagram with Categorized Causal Ribs</span>
+      <span class="chip chip-blue">Ishikawa 6M</span>
+    </div>
+  </div>
+
+  <h2>The 6 Causal Vectors in Energy Operations</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:22%">Vector</th>
+        <th style="width:38%">Energy Infrastructure Focus</th>
+        <th style="width:40%">Sample Findings</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Machine / Asset</strong></td>
+        <td>Hardware, switchgear, pumps, bearings, turbines, transformers, telemetry.</td>
+        <td>SF6 micro-leak at seal seat, mechanical fatigue crack on impellor.</td>
+      </tr>
+      <tr>
+        <td><strong>Method / Procedure</strong></td>
+        <td>Maintenance SOPs, commissioning guidelines, switching protocols.</td>
+        <td>Outdated OEM maintenance manual; missing dual-torque verification.</td>
+      </tr>
+      <tr>
+        <td><strong>Material / Supplies</strong></td>
+        <td>Consumables, metallurgy, oil viscosity, seal elastomeric compounds.</td>
+        <td>Non-compliant O-ring batch installed during scheduled overhaul.</td>
+      </tr>
+      <tr>
+        <td><strong>Manpower / Human</strong></td>
+        <td>Training, competency verification, shift handover clarity, fatigue.</td>
+        <td>Contractor technician uncertified on 220kV GIS pressurization kit.</td>
+      </tr>
+      <tr>
+        <td><strong>Measurement</strong></td>
+        <td>Calibration certificates, gauge accuracy, transducer drift, SCADA polling.</td>
+        <td>Analog manometer reading 0.4 bar higher than actual chamber pressure.</td>
+      </tr>
+      <tr>
+        <td><strong>Milieu / Environment</strong></td>
+        <td>Offshore marine salt spray, high humidity, vibration, storm gale forces.</td>
+        <td>Salt-crust corrosion on enclosure breather valve; thermal cycling.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ==================== SECTION 8 ==================== -->
+<div class="page">
+  <div class="header-tag">Deductive Logic Modeling</div>
+  <h1>8. Fault Tree Analysis (FTA) &amp; Logic Gates</h1>
+
+  <p>
+    When catastrophic incidents result from multiple concurrent component failures or interlock bypasses, <strong>Fault Tree Analysis (FTA)</strong> provides a rigorous mathematical and logical structure compliant with IEC 61025.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/08_fault_tree_fta.png" alt="Fault Tree Analysis FTA">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 8:</strong> Fault Tree Analysis with Boolean AND/OR Logic Gates &amp; Primary Events</span>
+      <span class="chip chip-teal">Fault Tree (FTA)</span>
+    </div>
+  </div>
+
+  <h2>Logic Gate Fundamentals</h2>
+  <ul>
+    <li><strong>OR Gate ($\ge 1$):</strong> The output fault occurs if <em>at least one</em> input event takes place. Represents single-point-of-failure vulnerability.</li>
+    <li><strong>AND Gate ($\ge 2$):</strong> The output fault occurs <em>only if all</em> input conditions are simultaneously satisfied. Represents redundant engineered safeguards.</li>
+    <li><strong>Minimal Cut Sets:</strong> The smallest combination of basic events that causes the Top Undesired Event (e.g. <em>[Seal Failure] AND [Telemetry Loss]</em>). Identifying cut sets directs CAPA priorities to eliminate single-point vulnerabilities.</li>
+  </ul>
+</div>
+
+<!-- ==================== SECTION 9 ==================== -->
+<div class="page">
+  <div class="header-tag">Defense-in-Depth</div>
+  <h1>9. Swiss-Cheese Barrier Analysis</h1>
+
+  <p>
+    Adapted from Prof. James Reason's systemic accident model, <strong>Barrier Analysis</strong> maps the sequential defensive safeguards designed to prevent an operational hazard from escalating into asset loss or human harm.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/09_barrier_swiss_cheese.png" alt="Swiss-Cheese Barrier Analysis">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 9:</strong> Swiss-Cheese Barrier Model demonstrating Barrier Breaches &amp; Latent Defects</span>
+      <span class="chip chip-blue">Barrier Defense</span>
+    </div>
+  </div>
+
+  <h2>The 4 Industrial Defense Layers</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:25%">Defense Layer</th>
+        <th style="width:35%">Engineered Safeguard</th>
+        <th style="width:40%">Investigated Barrier Failure Mode</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>1. Physical / Hardware</strong></td>
+        <td>Pressure vessels, burst disks, O-ring seals, blast walls, enclosures.</td>
+        <td>O-ring deformed; burst disk corroded from marine atmosphere.</td>
+      </tr>
+      <tr>
+        <td><strong>2. Operational / Automation</strong></td>
+        <td>SCADA interlocks, differential current relays, auto-trips, UPS backup.</td>
+        <td>SCADA fiber optic switch offline; alarm suppressed by faulty logic.</td>
+      </tr>
+      <tr>
+        <td><strong>3. Administrative / SOPs</strong></td>
+        <td>Permit to Work (PTW), torque specs, shift check sheets, calibration logs.</td>
+        <td>Maintenance checklist signed off without physical gauge check.</td>
+      </tr>
+      <tr>
+        <td><strong>4. Emergency / Mitigative</strong></td>
+        <td>Emergency power shutdown, fire deluge systems, remote islanding.</td>
+        <td>Manual trip switch delayed 22 minutes due to communication lag.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ==================== SECTION 10 ==================== -->
+<div class="page">
+  <div class="header-tag">Risk Quantification</div>
+  <h1>10. Failure Mode &amp; Effects Analysis (FMEA) &amp; RPN</h1>
+
+  <p>
+    Failure Mode and Effects Analysis provides numerical risk scoring compliant with IEC 60812. Each identified failure mechanism is evaluated on a 1-to-10 scale across three independent dimensions to yield a <strong>Risk Priority Number (RPN)</strong>.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/10_fmea_risk.png" alt="FMEA Risk Ranking">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 10:</strong> FMEA Risk Grid with Severity, Occurrence, Detection &amp; RPN Thresholds</span>
+      <span class="chip chip-teal">FMEA Risk</span>
+    </div>
+  </div>
+
+  <h2>RPN Calculation &amp; Action Bands</h2>
+  <p>
+    $$\text{RPN} = \text{Severity (S)} \times \text{Occurrence (O)} \times \text{Detection (D)}$$
+    RPN scores range from $1$ to $1000$. RWE operating policy mandates immediate engineering intervention according to the following matrix:
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:18%">RPN Range</th>
+        <th style="width:20%">Risk Classification</th>
+        <th style="width:32%">Required Action Timeline</th>
+        <th style="width:30%">Governance Level</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>RPN &ge; 200</strong></td>
+        <td><span class="chip chip-red">High / Critical</span></td>
+        <td>Immediate containment action within 48 hours; permanent engineering CAPA within 30 days.</td>
+        <td>Head of Engineering &amp; Station Director Approval</td>
+      </tr>
+      <tr>
+        <td><strong>125 &le; RPN &lt; 200</strong></td>
+        <td><span class="chip chip-amber">Medium Risk</span></td>
+        <td>Implement corrective action prior to next scheduled maintenance outage (60–90 days).</td>
+        <td>Site Operations Manager Approval</td>
+      </tr>
+      <tr>
+        <td><strong>RPN &lt; 125</strong></td>
+        <td><span class="chip chip-teal">Low Risk</span></td>
+        <td>Routine monitoring; incorporate into standard annual maintenance cycle.</td>
+        <td>Lead Reliability Engineer Approval</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <strong>Mandatory Severity Rule:</strong> Regardless of low Occurrence or Detection scores, any failure mode with a <strong>Severity of 9 or 10</strong> (involving potential personnel injury or environmental release) automatically requires an approved CAPA.
+  </div>
+</div>
+
+<!-- ==================== SECTION 11 ==================== -->
+<div class="page">
+  <div class="header-tag">Action Governance</div>
+  <h1>11. CAPA Action Tracking &amp; Outlook Synchronization</h1>
+
+  <p>
+    An investigation is only as effective as the permanence of its corrective solutions. The CAPA Tracker enforces accountability by assigning owners, target completion dates, hierarchy of control classifications, and direct Microsoft Outlook calendar integration.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/11_capa_tracker.png" alt="CAPA Management and Action Plan">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 11:</strong> CAPA Action Tracker with Hierarchy of Controls, Owners &amp; Outlook .ICS Export</span>
+      <span class="chip chip-blue">CAPA Tracker</span>
+    </div>
+  </div>
+
+  <h2>Hierarchy of Controls Alignment</h2>
+  <ul>
+    <li><strong>1. Elimination:</strong> Physically remove the hazard (e.g. decommission obsolete high-vibration auxiliary lube pump).</li>
+    <li><strong>2. Substitution:</strong> Replace hazardous components (e.g. replace toxic cleaning solvent with biodegradable bio-cleaner).</li>
+    <li><strong>3. Engineering Controls:</strong> Isolate people from hazard (e.g. install automated SF6 telemetry interlock, redundant dual sensors).</li>
+    <li><strong>4. Administrative Controls:</strong> Change operating procedures (e.g. revise torque SOP, enforce mandatory dual-technician sign-off).</li>
+    <li><strong>5. PPE:</strong> Protect personnel with personal equipment (baseline last-resort protection).</li>
+  </ul>
+
+  <div class="callout tip">
+    <strong>One-Click Outlook Calendar Synchronization:</strong> Each action item includes an <em>"Outlook .ics"</em> button. Clicking this downloads an iCalendar appointment containing action details, investigation reference code, and assigned deadline, seamlessly syncing into Microsoft Outlook.
+  </div>
+</div>
+
+<!-- ==================== SECTION 12 ==================== -->
+<div class="page">
+  <div class="header-tag">Auditing &amp; Sign-off</div>
+  <h1>12. Digital Governance &amp; Audit Trail</h1>
+
+  <p>
+    To satisfy RWE quality policies and international regulatory scrutiny, investigations must undergo formal peer review prior to official closure. The Conclusion tab enforces a multi-tier electronic sign-off protocol coupled with a 6-point pre-closure checklist.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/12_governance_signoffs.png" alt="Digital Governance and Pre-Closure Audit Checklist">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 12:</strong> Digital Sign-off Blocks, Pre-Closure Checklist &amp; Immutable Audit Trail</span>
+      <span class="chip chip-teal">Audit &amp; Sign-off</span>
+    </div>
+  </div>
+
+  <h2>Electronic Sign-off Tiers</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:25%">Sign-off Role</th>
+        <th style="width:35%">Responsibilities Verified</th>
+        <th style="width:40%">Requirements for Approval</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Lead Investigator</strong></td>
+        <td>Fact-finding accuracy, timeline veracity, evidence completeness.</td>
+        <td>All 5 Whys, Ishikawa, and timeline nodes substantiated by data.</td>
+      </tr>
+      <tr>
+        <td><strong>Technical Reviewer</strong></td>
+        <td>Engineering validity of root causes and proposed hardware changes.</td>
+        <td>Independent Senior Engineer verification; no single-point flaws remain.</td>
+      </tr>
+      <tr>
+        <td><strong>HSE &amp; Quality Lead</strong></td>
+        <td>Compliance with environmental, health, and statutory safety standards.</td>
+        <td>Regulatory reporting requirements satisfied; zero safety compromises.</td>
+      </tr>
+      <tr>
+        <td><strong>Station / Asset Director</strong></td>
+        <td>Budgetary approval, resource allocation for CAPA engineering, closure.</td>
+        <td>All CAPAs funded, assigned, and accepted by maintenance leadership.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>The 6-Point Pre-Closure Audit Readiness Checklist</h2>
+  <ol>
+    <li><strong>Problem Definition:</strong> 5W2H problem statement clearly articulates what failed, where, and when.</li>
+    <li><strong>Evidence Substantiation:</strong> All timeline events are backed by physical evidence, SCADA records, or lab reports.</li>
+    <li><strong>Root Cause Validation:</strong> 5 Whys chain passes the reverse "Therefore" test from root cause back to symptom.</li>
+    <li><strong>CAPA Coverage:</strong> Every identified root cause has at least one active, assigned corrective or preventive action.</li>
+    <li><strong>Action Ownership:</strong> All CAPA actions have a named responsible engineer and an agreed realistic completion date.</li>
+    <li><strong>Peer Verification:</strong> Independent technical review completed without unresolved engineering objections.</li>
+  </ol>
+</div>
+
+<!-- ==================== SECTION 13 ==================== -->
+<div class="page">
+  <div class="header-tag">Executive Reporting</div>
+  <h1>13. Reporting Suite &amp; Multi-Format Exports</h1>
+
+  <p>
+    RWE-RCA provides four export options tailored for diverse stakeholder audiences—from executive board presentations to maintenance planning spreadsheets.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/14_export_reports.png" alt="Multi-Format Export Suite">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 13:</strong> Multi-Format Export Suite (PDF Dossier, Word DOCX, PowerPoint PPTX, Excel XLSX)</span>
+      <span class="chip chip-blue">Export Engine</span>
+    </div>
+  </div>
+
+  <h2>Export Format Guide</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:20%">Format</th>
+        <th style="width:35%">Target Audience</th>
+        <th style="width:45%">Contents &amp; Layout Features</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Formal PDF Dossier</strong></td>
+        <td>Regulatory bodies, HSE inspectors, insurers, archive repositories.</td>
+        <td>Standard A4 printable layout, full color diagrams, sign-off blocks, audit history.</td>
+      </tr>
+      <tr>
+        <td><strong>Word Document (.docx)</strong></td>
+        <td>Engineering working groups, project managers, contract reviewers.</td>
+        <td>Fully editable text, styled tables, embedded screenshots, expandable sections.</td>
+      </tr>
+      <tr>
+        <td><strong>PowerPoint (.pptx)</strong></td>
+        <td>Executive Board, Operations Review meetings, Shift briefings.</td>
+        <td>Widescreen 16:9 slides, high-impact KPI summary, visual fishbone, CAPA milestones.</td>
+      </tr>
+      <tr>
+        <td><strong>Excel Workbook (.xlsx)</strong></td>
+        <td>Reliability analysts, maintenance planners, SAP data clerks.</td>
+        <td>Multi-sheet workbook: Overview, Timeline, 5 Whys, Fishbone, FMEA, CAPAs with formulas.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/13_method_guide_modal.png" alt="Method Selection Guide Modal">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 14:</strong> In-App Method Guidance Modal providing Decision Trees for Methodology Selection</span>
+      <span class="chip chip-teal">Method Decision Guide</span>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 14 ==================== -->
+<div class="page">
+  <div class="header-tag">Field Reliability</div>
+  <h1>14. Field Offline Resilience &amp; Troubleshooting</h1>
+
+  <p>
+    Working in offshore environments, wind turbine nacelles, or underground substations often means complete absence of cellular or Wi-Fi coverage. The RWE-RCA Platform is engineered to deliver 100% operational capability regardless of network status.
+  </p>
+
+  <h2>Offline Workflow Best Practices</h2>
+  <ul>
+    <li><strong>Open App Prior to Transit:</strong> Ensure the web application is loaded on your ruggedized field tablet or laptop before boarding crew transfer vessels (CTVs) or helicopters. The browser Service Worker caches all application assets locally.</li>
+    <li><strong>Unrestricted Field Editing:</strong> Capture timeline events, upload photos, develop 5 Whys causal links, and create CAPAs in the field. All changes commit immediately to local indexed storage.</li>
+    <li><strong>Status Pill Verification:</strong> The top navigation bar indicates current operational state:
+      <br>· <span class="chip chip-teal">Synced</span> — Data successfully mirrored to enterprise database.
+      <br>· <span class="chip chip-blue">Local only</span> — Full functionality active; data stored safely on current device.
+      <br>· <span class="chip chip-amber">Syncing...</span> — Transmitting field updates to cloud upon network reconnection.
+    </li>
+  </ul>
+
+  <h2>Troubleshooting Frequently Encountered Scenarios</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:25%">Symptom / Scenario</th>
+        <th style="width:35%">Probable Cause</th>
+        <th style="width:40%">Corrective Solution</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Sync Pill shows "Offline"</strong></td>
+        <td>No network connection detected on offshore platform or remote substation.</td>
+        <td>Normal behavior. Continue working normally; all data is preserved locally and will sync when network returns.</td>
+      </tr>
+      <tr>
+        <td><strong>Browser Cache Cleared</strong></td>
+        <td>User executed "Clear browsing history and local storage" in browser settings.</td>
+        <td>Connect to corporate network and sign in with Windows SSO; the platform will automatically restore all investigations from cloud.</td>
+      </tr>
+      <tr>
+        <td><strong>Cannot Edit Investigation</strong></td>
+        <td>Investigation is marked as "Closed" and "Locked" following final Station Director sign-off.</td>
+        <td>Request Site Admin or Global Admin to temporarily toggle investigation status back to "In Review".</td>
+      </tr>
+      <tr>
+        <td><strong>Overdue CAPA Notifications</strong></td>
+        <td>Action item target date has passed without verification sign-off.</td>
+        <td>Assigned action owner must complete verification notes and click "Mark Complete" or request an approved date extension.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip">
+    <strong>JSON Vault Backup:</strong> Investigators can perform an instant local backup at any time via <em>Settings &rarr; Export Data Vault (JSON)</em>. This produces an encrypted, portable file containing all site investigations, timeline records, and attachments.
+  </div>
+
+  <div style="margin-top: 30px; padding-top: 15px; border-top: 2px solid #1D4276; display: flex; justify-content: space-between; align-items: center; font-size: 8.5pt; color: #64748b;">
+    <div>
+      <strong>RWE Generation &amp; Renewables</strong><br>
+      Reliability &amp; Operational Excellence Working Group
+    </div>
+    <div style="text-align: right;">
+      Document Code: <strong>RWE-RCA-SOP-2026-V2.4</strong><br>
+      Published: November 2026 · Standard Operations Manual
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
