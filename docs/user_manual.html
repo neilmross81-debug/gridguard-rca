@@ -14,7 +14,7 @@
       color: #64748b;
     }
     @bottom-left {
-      content: "RWE-RCA Platform · Technical Standard SOP-2026-V2.4 · RWE Internal";
+      content: "RWE-RCA Platform · Technical Standard SOP-2026-V2.5 · RWE Internal";
       font-size: 8.5pt;
       font-family: 'Segoe UI', Arial, sans-serif;
       color: #64748b;
@@ -26,7 +26,7 @@
     margin: 0;
     padding: 0;
     font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-    font-size: 10pt;
+    font-size: 9.8pt;
     line-height: 1.55;
     color: #1e293b;
     background: #ffffff;
@@ -123,19 +123,19 @@
     margin-bottom: 10px;
   }
   .cover-title {
-    font-size: 32pt;
+    font-size: 30pt;
     font-weight: 800;
     line-height: 1.15;
     margin: 0 0 16px 0;
     letter-spacing: -0.8px;
   }
   .cover-tagline {
-    font-size: 13.5pt;
+    font-size: 13pt;
     color: #cbd5e1;
     font-weight: 300;
     line-height: 1.45;
-    max-width: 650px;
-    margin-bottom: 28px;
+    max-width: 680px;
+    margin-bottom: 24px;
   }
   .cover-pill-row {
     display: flex;
@@ -184,9 +184,9 @@
     font-weight: 700;
     margin-top: 0;
   }
-  h1 { font-size: 18pt; border-bottom: 2px solid #1D4276; padding-bottom: 6px; margin-bottom: 14px; }
-  h2 { font-size: 13.5pt; color: #1D4276; margin-top: 18px; margin-bottom: 8px; border-left: 3.5px solid #00B38D; padding-left: 8px; }
-  h3 { font-size: 11pt; color: #0d223f; margin-top: 14px; margin-bottom: 6px; }
+  h1 { font-size: 17pt; border-bottom: 2px solid #1D4276; padding-bottom: 5px; margin-bottom: 12px; }
+  h2 { font-size: 13pt; color: #1D4276; margin-top: 16px; margin-bottom: 8px; border-left: 3.5px solid #00B38D; padding-left: 8px; }
+  h3 { font-size: 10.5pt; color: #0d223f; margin-top: 12px; margin-bottom: 6px; }
 
   p { margin: 0 0 10px 0; text-align: justify; }
   ul, ol { margin: 0 0 12px 0; padding-left: 20px; }
@@ -216,7 +216,7 @@
   }
   th, td {
     border: 1px solid #cbd5e1;
-    padding: 7px 9px;
+    padding: 6.5px 8.5px;
     text-align: left;
     vertical-align: top;
   }
@@ -232,7 +232,7 @@
 
   /* Screenshots & Figures */
   .figure {
-    margin: 14px 0 16px 0;
+    margin: 12px 0 14px 0;
     border: 1px solid #cbd5e1;
     border-radius: 8px;
     overflow: hidden;
@@ -249,12 +249,12 @@
   }
   .figure img {
     width: 100%;
-    max-height: 480px;
+    max-height: 440px;
     object-fit: contain;
     display: block;
   }
   .figure-cap {
-    padding: 7px 12px;
+    padding: 6.5px 12px;
     font-size: 8.5pt;
     color: #475569;
     background: #ffffff;
@@ -282,14 +282,44 @@
   .chip-red { background: #fee2e2; color: #b91c1c; border: 1px solid #ef4444; }
   .chip-amber { background: #fef3c7; color: #b45309; border: 1px solid #f59e0b; }
 
+  /* Steps list */
+  .steps-list {
+    margin: 10px 0 14px 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step-counter;
+  }
+  .steps-list li {
+    counter-increment: step-counter;
+    position: relative;
+    padding-left: 36px;
+    margin-bottom: 10px;
+    text-align: justify;
+  }
+  .steps-list li::before {
+    content: counter(step-counter);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 24px;
+    height: 24px;
+    background: #1D4276;
+    color: #ffffff;
+    border-radius: 50%;
+    text-align: center;
+    font-weight: 700;
+    font-size: 8.5pt;
+    line-height: 24px;
+  }
+
   /* TOC */
   .toc-row {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    padding: 5px 0;
+    padding: 4px 0;
     border-bottom: 1px dotted #cbd5e1;
-    font-size: 9pt;
+    font-size: 8.8pt;
   }
   .toc-title { font-weight: 600; color: #1D4276; }
   .toc-dots { flex: 1; border-bottom: 1px dotted #94a3b8; margin: 0 8px; }
@@ -324,16 +354,17 @@
 
   <div class="cover-main">
     <div class="cover-eyebrow">Enterprise Operational Manual</div>
-    <h1 class="cover-title">Root Cause Analysis &amp; CAPA Platform</h1>
+    <h1 class="cover-title">Root Cause Analysis &amp; Platform Administration Manual</h1>
     <div class="cover-tagline">
-      Complete Operations, Methodology &amp; Engineering User Manual covering 5 Whys, Ishikawa 6M, Fault Tree Analysis (FTA), Swiss-Cheese Barrier Integrity, FMEA Risk Scoring, SAP PM Synchronization &amp; Digital Governance.
+      Complete Technical Guide covering Multi-Site Provisioning, Multi-User RBAC Administration, Site Setup, 5 Whys, Ishikawa 6M, Fault Tree Analysis (FTA), Swiss-Cheese Barriers, FMEA Risk Scoring, SAP PM Synchronization &amp; Digital Governance.
     </div>
 
     <div class="cover-pill-row">
-      <span class="cover-pill">Offshore Wind &amp; Marine Substations</span>
-      <span class="cover-pill">Thermal &amp; CCGT Fleets</span>
-      <span class="cover-pill">Battery Energy Storage (BESS)</span>
-      <span class="cover-pill">High-Voltage IEC 61850</span>
+      <span class="cover-pill">Multi-Site Architecture</span>
+      <span class="cover-pill">Multi-User RBAC Matrix</span>
+      <span class="cover-pill">Site &amp; User Provisioning</span>
+      <span class="cover-pill">Offshore Wind &amp; Marine OSPs</span>
+      <span class="cover-pill">CCGT &amp; BESS Fleets</span>
       <span class="cover-pill">ISO 55001 / ISO 9001 Compliant</span>
     </div>
   </div>
@@ -341,7 +372,7 @@
   <div class="cover-footer">
     <div>
       DOCUMENT IDENTIFIER
-      <strong>RWE-RCA-SOP-2026-V2.4</strong>
+      <strong>RWE-RCA-SOP-2026-V2.5</strong>
     </div>
     <div>
       GOVERNANCE &amp; APPROVAL
@@ -370,15 +401,15 @@
     <tbody>
       <tr>
         <td><strong>Document Code</strong></td>
-        <td>RWE-RCA-SOP-2026-V2.4</td>
+        <td>RWE-RCA-SOP-2026-V2.5</td>
       </tr>
       <tr>
         <td><strong>Classification</strong></td>
-        <td>RWE Internal · Operational &amp; Engineering Technical Standard</td>
+        <td>RWE Internal · Operational, Systems &amp; Engineering Technical Standard</td>
       </tr>
       <tr>
         <td><strong>Target Audience</strong></td>
-        <td>Reliability Engineers, Offshore Wind Technicians, Plant Managers, Electrical/HV Specialists, HSE Leads, Quality Auditors, Station Directors</td>
+        <td>System Administrators, Plant Directors, Reliability Engineers, Offshore Wind Technicians, Plant Managers, Electrical/HV Specialists, HSE Leads, Quality Auditors</td>
       </tr>
       <tr>
         <td><strong>Standard Compliances</strong></td>
@@ -426,33 +457,41 @@
         <td>RWE Lead Systems Architect</td>
         <td>Full RWE corporate rebranding, Microsoft SSO authentication, automated lost generation revenue formulas, and Outlook .ics export.</td>
       </tr>
+      <tr>
+        <td>v2.5</td>
+        <td>Nov 2026</td>
+        <td>Enterprise Systems Admin</td>
+        <td>Comprehensive Multi-Site Architecture, Site Provisioning SOP, Multi-User RBAC Governance, Admin User Management, and Granular RCA Assignment guides.</td>
+      </tr>
     </tbody>
   </table>
 
   <h2>Table of Contents</h2>
   <div class="toc-row"><span class="toc-title">1. Introduction &amp; System Architecture</span><span class="toc-dots"></span><span class="toc-num">Section 1</span></div>
-  <div class="toc-row"><span class="toc-title">2. Access, Authentication &amp; Multi-Site Roles</span><span class="toc-dots"></span><span class="toc-num">Section 2</span></div>
-  <div class="toc-row"><span class="toc-title">3. Executive Operations Dashboard</span><span class="toc-dots"></span><span class="toc-num">Section 3</span></div>
-  <div class="toc-row"><span class="toc-title">4. Investigations Register &amp; Scoping</span><span class="toc-dots"></span><span class="toc-num">Section 4</span></div>
-  <div class="toc-row"><span class="toc-title">5. Sequence of Events (SOE) &amp; Timeline Module</span><span class="toc-dots"></span><span class="toc-num">Section 5</span></div>
-  <div class="toc-row"><span class="toc-title">6. 5 Whys Root Cause Analysis &amp; Flow Diagram</span><span class="toc-dots"></span><span class="toc-num">Section 6</span></div>
-  <div class="toc-row"><span class="toc-title">7. Ishikawa (6M) Fishbone Analysis</span><span class="toc-dots"></span><span class="toc-num">Section 7</span></div>
-  <div class="toc-row"><span class="toc-title">8. Fault Tree Analysis (FTA) &amp; Logic Gates</span><span class="toc-dots"></span><span class="toc-num">Section 8</span></div>
-  <div class="toc-row"><span class="toc-title">9. Swiss-Cheese Barrier Analysis</span><span class="toc-dots"></span><span class="toc-num">Section 9</span></div>
-  <div class="toc-row"><span class="toc-title">10. Failure Mode &amp; Effects Analysis (FMEA) &amp; RPN</span><span class="toc-dots"></span><span class="toc-num">Section 10</span></div>
-  <div class="toc-row"><span class="toc-title">11. CAPA Action Tracking &amp; Outlook Synchronization</span><span class="toc-dots"></span><span class="toc-num">Section 11</span></div>
-  <div class="toc-row"><span class="toc-title">12. Digital Governance, Technical Sign-offs &amp; Audit Trail</span><span class="toc-dots"></span><span class="toc-num">Section 12</span></div>
-  <div class="toc-row"><span class="toc-title">13. Reporting Suite &amp; Multi-Format Exports</span><span class="toc-dots"></span><span class="toc-num">Section 13</span></div>
-  <div class="toc-row"><span class="toc-title">14. Field Offline Resilience &amp; Troubleshooting</span><span class="toc-dots"></span><span class="toc-num">Section 14</span></div>
+  <div class="toc-row"><span class="toc-title">2. Enterprise Multi-Site Architecture &amp; Site Provisioning</span><span class="toc-dots"></span><span class="toc-num">Section 2</span></div>
+  <div class="toc-row"><span class="toc-title">3. Multi-User Administration, RBAC &amp; Adding Users</span><span class="toc-dots"></span><span class="toc-num">Section 3</span></div>
+  <div class="toc-row"><span class="toc-title">4. Access, Authentication &amp; Windows SSO</span><span class="toc-dots"></span><span class="toc-num">Section 4</span></div>
+  <div class="toc-row"><span class="toc-title">5. Executive Operations Dashboard</span><span class="toc-dots"></span><span class="toc-num">Section 5</span></div>
+  <div class="toc-row"><span class="toc-title">6. Investigations Register &amp; Scoping</span><span class="toc-dots"></span><span class="toc-num">Section 6</span></div>
+  <div class="toc-row"><span class="toc-title">7. Sequence of Events (SOE) &amp; Timeline Module</span><span class="toc-dots"></span><span class="toc-num">Section 7</span></div>
+  <div class="toc-row"><span class="toc-title">8. 5 Whys Root Cause Analysis &amp; Flow Diagram</span><span class="toc-dots"></span><span class="toc-num">Section 8</span></div>
+  <div class="toc-row"><span class="toc-title">9. Ishikawa (6M) Fishbone Analysis</span><span class="toc-dots"></span><span class="toc-num">Section 9</span></div>
+  <div class="toc-row"><span class="toc-title">10. Fault Tree Analysis (FTA) &amp; Logic Gates</span><span class="toc-dots"></span><span class="toc-num">Section 10</span></div>
+  <div class="toc-row"><span class="toc-title">11. Swiss-Cheese Barrier Analysis</span><span class="toc-dots"></span><span class="toc-num">Section 11</span></div>
+  <div class="toc-row"><span class="toc-title">12. Failure Mode &amp; Effects Analysis (FMEA) &amp; RPN</span><span class="toc-dots"></span><span class="toc-num">Section 12</span></div>
+  <div class="toc-row"><span class="toc-title">13. CAPA Action Tracking &amp; Outlook Synchronization</span><span class="toc-dots"></span><span class="toc-num">Section 13</span></div>
+  <div class="toc-row"><span class="toc-title">14. Digital Governance, Technical Sign-offs &amp; Audit Trail</span><span class="toc-dots"></span><span class="toc-num">Section 14</span></div>
+  <div class="toc-row"><span class="toc-title">15. Reporting Suite &amp; Multi-Format Exports</span><span class="toc-dots"></span><span class="toc-num">Section 15</span></div>
+  <div class="toc-row"><span class="toc-title">16. Field Offline Resilience &amp; Troubleshooting</span><span class="toc-dots"></span><span class="toc-num">Section 16</span></div>
 </div>
 
-<!-- ==================== SECTION 1 & 2 ==================== -->
+<!-- ==================== SECTION 1 ==================== -->
 <div class="page">
-  <div class="header-tag">Architecture &amp; Security</div>
+  <div class="header-tag">Architecture &amp; Core Principles</div>
   <h1>1. Introduction &amp; System Architecture</h1>
 
   <p>
-    The <strong>RWE-RCA Platform</strong> is an enterprise-grade investigation and incident intelligence application engineered specifically for RWE Generation and Renewables operating environments. Modern energy infrastructure—encompassing offshore windfarms, high-voltage offshore substation platforms (OSPs), CCGT thermal stations, and utility-scale battery energy storage systems (BESS)—demands an investigation platform that operates with absolute reliability even in bandwidth-restricted or disconnected offshore conditions.
+    The <strong>RWE-RCA Platform</strong> is an enterprise-grade incident investigation and operational intelligence system designed specifically for the rigorous operating conditions of RWE Generation and Renewables fleets. Modern energy infrastructure—encompassing offshore windfarms, high-voltage offshore substation platforms (OSPs), CCGT thermal stations, and utility-scale battery energy storage systems (BESS)—demands an investigation platform that operates with absolute reliability even in bandwidth-restricted or disconnected offshore conditions.
   </p>
 
   <div class="callout tip">
@@ -461,13 +500,202 @@
 
   <h2>Key Architectural Pillars</h2>
   <ul>
+    <li><strong>Multi-Site Isolation &amp; Federation:</strong> Logical data segregation across generation fleets with independent site administrators, custom asset registers, and regional clustering.</li>
+    <li><strong>Multi-User Role-Based Access Control (RBAC):</strong> Enterprise permission matrix enabling flexible user roles across sites, alongside granular assignment of individual investigations to specialized contractors.</li>
     <li><strong>Multi-Method Investigation Suite:</strong> Seamless integration of 5 complementary industrial RCA methodologies: Sequence of Events (SOE), 5 Whys, Ishikawa 6M Fishbone, Fault Tree Analysis (FTA), and Swiss-Cheese Barrier Analysis.</li>
     <li><strong>Enterprise SAP PM Alignment:</strong> Direct linking of SAP Plant Maintenance Notification numbers and Work Orders with automatic timeline cross-scanning.</li>
     <li><strong>Loss Accounting Engine:</strong> Automated lost power generation (MWh) and revenue financial consequence modeling driven by site-specific capacity and tariffs.</li>
     <li><strong>Digital Audit &amp; Governance:</strong> Formal four-tier electronic sign-off lifecycle with an immutable, tamper-evident chronological audit log.</li>
   </ul>
+</div>
 
-  <h1>2. Access, Authentication &amp; Multi-Site Roles</h1>
+<!-- ==================== SECTION 2: MULTI-SITE ARCHITECTURE & SITE SETUP ==================== -->
+<div class="page">
+  <div class="header-tag">Enterprise Administration</div>
+  <h1>2. Enterprise Multi-Site Architecture &amp; Site Provisioning</h1>
+
+  <p>
+    RWE operates a diverse asset portfolio spread across distinct geographical territories, electrical grids, and technological disciplines. The RWE-RCA Platform provides robust multi-site management that isolates investigation data, incident codes, and user permissions on a per-facility basis while permitting centralized governance.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/15_admin_sites_and_users.png" alt="Sites and Users Administration Console">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 2:</strong> Administration Console — Operational Sites Register &amp; User Accounts Matrix</span>
+      <span class="chip chip-blue">Admin Console</span>
+    </div>
+  </div>
+
+  <h2>Site Data Architecture &amp; Segregation</h2>
+  <p>
+    Every investigation, equipment tag, and CAPA action is permanently bound to a parent <code>site_id</code>. This architecture ensures:
+  </p>
+  <ul>
+    <li><strong>Targeted Visibility:</strong> Engineers assigned exclusively to offshore wind platforms do not see thermal plant investigations, and vice-versa, avoiding operational clutter.</li>
+    <li><strong>Autonomous Site Administration:</strong> Site Leads can manage local engineers, assign incident owners, and approve investigations without requiring corporate Global Admin intervention.</li>
+    <li><strong>Unified Fleet Reporting:</strong> Corporate reliability directors and Global Admins retain real-time cross-site visibility, aggregating metrics across all sites in the Executive Dashboard.</li>
+  </ul>
+
+  <h2>Site Metadata Schema</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:20%">Property</th>
+        <th style="width:25%">Format / Example</th>
+        <th style="width:55%">Description &amp; Operational Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Site Code</strong></td>
+        <td><code>OSP-01</code>, <code>RMP-01</code>, <code>THM-01</code></td>
+        <td>Short uppercase prefix used in dynamic document coding (e.g. <code>RCA-2026-OSP1-004</code>) and system badges.</td>
+      </tr>
+      <tr>
+        <td><strong>Site / Facility Name</strong></td>
+        <td><code>North Sea Offshore Substation OSP-01</code></td>
+        <td>Full formal facility name appearing on executive PDF reports, board decks, and regulatory filings.</td>
+      </tr>
+      <tr>
+        <td><strong>Region</strong></td>
+        <td><code>North Sea</code>, <code>English Channel</code>, <code>Irish Sea</code></td>
+        <td>Geographical cluster for toolbar filtering, regional weather benchmarking, and grid connection groups.</td>
+      </tr>
+      <tr>
+        <td><strong>Voltage Class</strong></td>
+        <td><code>220 kV / 66 kV</code>, <code>400 kV / 11 kV</code></td>
+        <td>Primary operating electrical parameters, informing default equipment tags and safety interlock matrices.</td>
+      </tr>
+      <tr>
+        <td><strong>Asana Project GID</strong></td>
+        <td><code>1201928374829102</code> (Optional)</td>
+        <td>External project management identifier for bi-directional synchronization of site CAPAs into corporate Asana boards.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/16_admin_add_site_modal.png" alt="Add Operational Site Modal">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 3:</strong> Operational Site Provisioning Modal — Code, Name, Region &amp; Voltage Configuration</span>
+      <span class="chip chip-teal">Site Setup</span>
+    </div>
+  </div>
+
+  <h2>Step-by-Step Procedure: Adding a New Operational Site</h2>
+  <ol class="steps-list">
+    <li><strong>Navigate to Administration:</strong> Sign in with a <strong>Global Admin</strong> account. From the top navigation header, click the <strong>Sites &amp; Users</strong> button (or navigate to <code>#/admin</code>).</li>
+    <li><strong>Initiate Site Creation:</strong> In the <em>Operational Sites</em> section, click the <strong>+ Add site</strong> button. This opens the <em>Add Operational Site</em> modal dialog.</li>
+    <li><strong>Enter Site Identification:</strong>
+      <br>· <strong>Site Code:</strong> Enter a 3–8 character unique alphanumeric code (e.g. <code>GEN-02</code>, <code>BESS-01</code>, <code>OSP-02</code>).
+      <br>· <strong>Site Name:</strong> Enter the full formal station name (e.g. <code>Little Barford CCGT &amp; BESS Hub</code>).
+    </li>
+    <li><strong>Select Region &amp; Voltage:</strong>
+      <br>· <strong>Region:</strong> Select from pre-configured offshore/onshore regions (e.g. <em>North Sea</em>, <em>English Channel</em>, <em>South East UK</em>) or type a new region name.
+      <br>· <strong>Voltage Class:</strong> Specify operational electrical classification (e.g. <code>400 kV / 11 kV</code> or <code>33 kV / 400V</code>).
+    </li>
+    <li><strong>Configure External Project Mapping (Optional):</strong> If your facility utilizes Asana for maintenance tracking, paste the 16-digit Asana Project GID.</li>
+    <li><strong>Save and Propagate:</strong> Click <strong>Save site</strong>. The platform provisions the site instantly, creates local storage indices, synchronizes to Supabase, and updates all regional filter dropdowns.</li>
+  </ol>
+
+  <div class="callout warn">
+    <strong>Site Deletion Safeguards:</strong> A site can only be deleted if you are signed in as Global Admin and the platform contains more than one site. Deleting a site permanently orphans associated investigations; export a JSON Vault Backup prior to performing site retirements.
+  </div>
+</div>
+
+<!-- ==================== SECTION 3: MULTI-USER GOVERNANCE & RBAC ==================== -->
+<div class="page">
+  <div class="header-tag">User Governance &amp; Security</div>
+  <h1>3. Multi-User Administration, RBAC &amp; Adding Users</h1>
+
+  <p>
+    Incident investigations involve cross-functional teams: maintenance technicians, shift supervisors, external OEM warranty specialists, HSE auditors, and executive station directors. The RWE-RCA platform implements a flexible, multi-tiered Role-Based Access Control (RBAC) engine that balances ease of field access with strict enterprise governance.
+  </p>
+
+  <div class="figure">
+    <div class="figure-img-wrap">
+      <img src="screenshots/17_admin_add_user_modal.png" alt="Add User Account and Role Matrix Modal">
+    </div>
+    <div class="figure-cap">
+      <span><strong>Figure 4:</strong> User Provisioning Modal — Credentials, Global Admin Elevation &amp; Per-Site Role Matrix</span>
+      <span class="chip chip-blue">User Provisioning</span>
+    </div>
+  </div>
+
+  <h2>The 4 Access Tiers &amp; Capabilities</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:16%">Role Tier</th>
+        <th style="width:24%">Scope of Authority</th>
+        <th style="width:60%">Permitted Platform Operations</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="chip chip-red">Global Admin</span></td>
+        <td>Entire Platform &amp; All Sites</td>
+        <td>Create and delete sites, manage all user accounts, elevate admins, modify cloud sync parameters, export complete data vaults, purge historical logs.</td>
+      </tr>
+      <tr>
+        <td><span class="chip chip-teal">Site Admin</span></td>
+        <td>Assigned Site(s) Only</td>
+        <td>Edit site details, create and manage users for their assigned site, approve RCA stage progressions, unlock closed investigations, assign CAPA owners.</td>
+      </tr>
+      <tr>
+        <td><span class="chip chip-blue">Site Editor</span></td>
+        <td>Assigned Site(s) Only</td>
+        <td>Create new investigations, log timeline events, build 5 Whys, Ishikawa, FTA, Barrier, and FMEA models, author CAPAs, export reports. Cannot alter user accounts.</td>
+      </tr>
+      <tr>
+        <td><span class="chip chip-amber">Site Viewer</span></td>
+        <td>Assigned Site(s) Only</td>
+        <td>Read-only inspection of investigations, timelines, and CAPA actions. Export formal PDF dossiers and Excel sheets. Cannot modify or delete records.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>The Per-Site Role Matrix</h2>
+  <p>
+    Unlike rigid systems where a user has only a single global role, RWE-RCA supports <strong>per-site role assignment</strong>. An engineer can have different levels of trust across facilities:
+  </p>
+  <ul>
+    <li><strong>Jane Smith (@j.smith):</strong> <code>Site Admin</code> at North Sea OSP-01 (her primary base of operations), <code>Editor</code> at Rampion Offshore Windfarm (collaborating on HV cables), and <code>Viewer</code> at Thames Estuary Grid.</li>
+    <li><strong>External Specialist (@oem.turbine):</strong> <code>No access</code> across all general sites, but explicitly granted <strong>Granular Assigned Access</strong> to a single critical turbine investigation (e.g. <code>RCA-2026-RAM-H07-003</code>).</li>
+  </ul>
+
+  <h2>Step-by-Step Procedure: Adding a New User Account</h2>
+  <ol class="steps-list">
+    <li><strong>Access Administration Console:</strong> Sign in with a Global Admin or Site Admin account. Click <strong>Sites &amp; Users</strong> in the top navigation bar.</li>
+    <li><strong>Open User Creation Form:</strong> Scroll to the <em>User Accounts</em> table and click the <strong>+ Add user</strong> button.</li>
+    <li><strong>Enter Account Credentials &amp; Profile:</strong>
+      <br>· <strong>Username:</strong> Choose a unique username without spaces (e.g. <code>m.hansen</code>, <code>rwe.admin</code>).
+      <br>· <strong>Password:</strong> Specify initial account password (user can sign in directly or authenticate via Windows SSO).
+      <br>· <strong>Full Name:</strong> Enter full formal name (e.g. <em>Marcus Hansen</em>).
+      <br>· <strong>Job Title:</strong> Enter corporate title (e.g. <em>Senior Offshore Electrical Engineer</em>).
+    </li>
+    <li><strong>Assign Administrative Permissions:</strong>
+      <br>· <strong>Global Admin:</strong> Check <em>"Grant Global Admin"</em> ONLY for corporate system administrators requiring unrestricted authority across all operational sites.
+      <br>· <strong>Per-Site Roles:</strong> If not Global Admin, configure the dropdown for each operational site: choose <em>No access</em>, <em>Viewer (read-only)</em>, <em>Editor (create &amp; edit)</em>, or <em>Admin (site &amp; users)</em>.
+    </li>
+    <li><strong>Assign Specific Individual RCAs (Optional):</strong> For contractors, warranty auditors, or OEM technicians requiring access to only specific incidents without full site visibility, select target investigations from the multi-select register list.</li>
+    <li><strong>Save and Activate:</strong> Click <strong>Save user</strong>. The user account is activated immediately and synchronized to the team cloud database.</li>
+  </ol>
+
+  <div class="callout info">
+    <strong>Account Security &amp; Self-Protection:</strong> The platform prevents administrators from accidentally deleting their own active account, and preserves primary system evaluation accounts (<code>demo</code>, <code>admin</code>) to eliminate the risk of accidental system lockout.
+  </div>
+</div>
+
+<!-- ==================== SECTION 4 & 5 ==================== -->
+<div class="page">
+  <div class="header-tag">Access &amp; Situational Awareness</div>
+  <h1>4. Access, Authentication &amp; Windows SSO</h1>
+
   <p>
     The platform provides seamless Single Sign-On (SSO) integration with Microsoft Azure Active Directory (Office 365 / Windows SSO), alongside evaluation account credentials for isolated maintenance and auditing environments.
   </p>
@@ -477,50 +705,12 @@
       <img src="screenshots/01_landing_sso.png" alt="RWE-RCA Landing and SSO Login Screen">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 1:</strong> Landing Page with Windows SSO Integration &amp; Role Presets</span>
+      <span><strong>Figure 5:</strong> Landing Page with Windows SSO Integration &amp; Quick Role Switcher</span>
       <span class="chip chip-blue">Authentication</span>
     </div>
   </div>
 
-  <h2>User Role Hierarchy</h2>
-  <table>
-    <thead>
-      <tr>
-        <th style="width:20%">Role</th>
-        <th style="width:30%">Permitted Operations</th>
-        <th style="width:50%">Typical Assignment</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><strong>Global Admin</strong></td>
-        <td>Full system governance, site provisioning, user permissions, global settings, webhook automation.</td>
-        <td>Lead Operations Reliability Manager, Systems Administrator</td>
-      </tr>
-      <tr>
-        <td><strong>Site Admin / Lead</strong></td>
-        <td>Create &amp; edit investigations, assign CAPA owners, approve RCA stages, manage site personnel.</td>
-        <td>Offshore Substation Manager, Maintenance Strategy Lead</td>
-      </tr>
-      <tr>
-        <td><strong>Lead Investigator</strong></td>
-        <td>Author timeline, 5 Whys, fishbone, FTA, barrier, and FMEA models. Submit for technical review.</td>
-        <td>Senior HV Electrical Engineer, Mechanical Specialist</td>
-      </tr>
-      <tr>
-        <td><strong>Auditor / Viewer</strong></td>
-        <td>Read-only inspection, export formal PDF/Word/Excel reports, review closed audit dossiers.</td>
-        <td>HSE Compliance Inspector, Insurance Loss Adjuster</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-
-<!-- ==================== SECTION 3 ==================== -->
-<div class="page">
-  <div class="header-tag">Executive Overview</div>
-  <h1>3. Executive Operations Dashboard</h1>
-
+  <h1>5. Executive Operations Dashboard</h1>
   <p>
     The Executive Operations Dashboard provides immediate operational situational awareness for fleet leaders, station directors, and asset managers. The interface aggregates active investigations, financial/generation losses, and corrective action health across all offshore and onshore operating sites.
   </p>
@@ -530,7 +720,7 @@
       <img src="screenshots/02_dashboard.png" alt="Executive Operations Dashboard">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 2:</strong> Operations Dashboard displaying KPIs, Lost Generation, and CAPA Distribution</span>
+      <span><strong>Figure 6:</strong> Operations Dashboard displaying KPIs, Lost Generation, and CAPA Distribution</span>
       <span class="chip chip-teal">Executive Metrics</span>
     </div>
   </div>
@@ -547,10 +737,10 @@
   </ul>
 </div>
 
-<!-- ==================== SECTION 4 ==================== -->
+<!-- ==================== SECTION 6 ==================== -->
 <div class="page">
   <div class="header-tag">Incident Management</div>
-  <h1>4. Investigations Register &amp; Scoping</h1>
+  <h1>6. Investigations Register &amp; Scoping</h1>
 
   <p>
     The Investigations Register serves as the centralized repository for all historical and active investigations across RWE operations. It is equipped with dynamic search, multi-site filtering, and SAP Plant Maintenance notification badges.
@@ -561,7 +751,7 @@
       <img src="screenshots/03_investigations_register.png" alt="Investigations Register">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 3:</strong> Centralized Investigations Register with SAP Notification Tags &amp; Severity Chips</span>
+      <span><strong>Figure 7:</strong> Centralized Investigations Register with SAP Notification Tags &amp; Severity Chips</span>
       <span class="chip chip-blue">Register</span>
     </div>
   </div>
@@ -576,7 +766,7 @@
       <img src="screenshots/04_rca_overview.png" alt="Investigation Scope & Overview">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 4:</strong> Investigation Overview: SAP PM Work Order, Equipment Tag, and 5W2H Scoping</span>
+      <span><strong>Figure 8:</strong> Investigation Overview: SAP PM Work Order, Equipment Tag, and 5W2H Scoping</span>
       <span class="chip chip-teal">Problem Definition</span>
     </div>
   </div>
@@ -586,10 +776,10 @@
   </div>
 </div>
 
-<!-- ==================== SECTION 5 ==================== -->
+<!-- ==================== SECTION 7 ==================== -->
 <div class="page">
   <div class="header-tag">Chronological Reconstruction</div>
-  <h1>5. Sequence of Events (SOE) &amp; Timeline Module</h1>
+  <h1>7. Sequence of Events (SOE) &amp; Timeline Module</h1>
 
   <p>
     Accurate failure analysis depends on establishing the exact chronological sequence of occurrences preceding, during, and following an upset. The Timeline / SOE module allows investigators to map millisecond-accurate SCADA alarms, protection relay trips, operator actions, and post-trip inspections.
@@ -600,7 +790,7 @@
       <img src="screenshots/05_timeline_soe.png" alt="Sequence of Events SOE Timeline">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 5:</strong> Chronological Sequence of Events (SOE) with Phase Badges &amp; Alarm Details</span>
+      <span><strong>Figure 9:</strong> Chronological Sequence of Events (SOE) with Phase Badges &amp; Alarm Details</span>
       <span class="chip chip-blue">Sequence of Events</span>
     </div>
   </div>
@@ -648,10 +838,10 @@
   </div>
 </div>
 
-<!-- ==================== SECTION 6 ==================== -->
+<!-- ==================== SECTION 8 ==================== -->
 <div class="page">
   <div class="header-tag">Causal Modeling</div>
-  <h1>6. 5 Whys Root Cause Analysis &amp; Flow Diagram</h1>
+  <h1>8. 5 Whys Root Cause Analysis &amp; Flow Diagram</h1>
 
   <p>
     The 5 Whys methodology drills down through successive layers of symptoms to expose underlying systemic and organizational deficiencies. The RWE-RCA Platform features a real-time dynamic SVG Causal Flow Tree that connects each question visually.
@@ -662,7 +852,7 @@
       <img src="screenshots/06_5whys_diagram.png" alt="5 Whys Causal Flow Tree">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 6:</strong> Interactive 5 Whys Flow Tree with Reverse-Verification Logic &amp; Branching</span>
+      <span><strong>Figure 10:</strong> Interactive 5 Whys Flow Tree with Reverse-Verification Logic &amp; Branching</span>
       <span class="chip chip-teal">5 Whys Engine</span>
     </div>
   </div>
@@ -684,10 +874,10 @@
   </p>
 </div>
 
-<!-- ==================== SECTION 7 ==================== -->
+<!-- ==================== SECTION 9 ==================== -->
 <div class="page">
   <div class="header-tag">Multi-Vector Analysis</div>
-  <h1>7. Ishikawa (6M) Fishbone Analysis</h1>
+  <h1>9. Ishikawa (6M) Fishbone Analysis</h1>
 
   <p>
     For multifaceted industrial breakdowns involving equipment, human factors, and environmental extremes, the <strong>Ishikawa 6M Diagram</strong> ensures no causal domain is overlooked.
@@ -698,7 +888,7 @@
       <img src="screenshots/07_ishikawa_fishbone.png" alt="Ishikawa 6M Fishbone Analysis">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 7:</strong> Ishikawa 6M Fishbone Diagram with Categorized Causal Ribs</span>
+      <span><strong>Figure 11:</strong> Ishikawa 6M Fishbone Diagram with Categorized Causal Ribs</span>
       <span class="chip chip-blue">Ishikawa 6M</span>
     </div>
   </div>
@@ -747,10 +937,10 @@
   </table>
 </div>
 
-<!-- ==================== SECTION 8 ==================== -->
+<!-- ==================== SECTION 10 ==================== -->
 <div class="page">
   <div class="header-tag">Deductive Logic Modeling</div>
-  <h1>8. Fault Tree Analysis (FTA) &amp; Logic Gates</h1>
+  <h1>10. Fault Tree Analysis (FTA) &amp; Logic Gates</h1>
 
   <p>
     When catastrophic incidents result from multiple concurrent component failures or interlock bypasses, <strong>Fault Tree Analysis (FTA)</strong> provides a rigorous mathematical and logical structure compliant with IEC 61025.
@@ -761,7 +951,7 @@
       <img src="screenshots/08_fault_tree_fta.png" alt="Fault Tree Analysis FTA">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 8:</strong> Fault Tree Analysis with Boolean AND/OR Logic Gates &amp; Primary Events</span>
+      <span><strong>Figure 12:</strong> Fault Tree Analysis with Boolean AND/OR Logic Gates &amp; Primary Events</span>
       <span class="chip chip-teal">Fault Tree (FTA)</span>
     </div>
   </div>
@@ -774,10 +964,10 @@
   </ul>
 </div>
 
-<!-- ==================== SECTION 9 ==================== -->
+<!-- ==================== SECTION 11 ==================== -->
 <div class="page">
   <div class="header-tag">Defense-in-Depth</div>
-  <h1>9. Swiss-Cheese Barrier Analysis</h1>
+  <h1>11. Swiss-Cheese Barrier Analysis</h1>
 
   <p>
     Adapted from Prof. James Reason's systemic accident model, <strong>Barrier Analysis</strong> maps the sequential defensive safeguards designed to prevent an operational hazard from escalating into asset loss or human harm.
@@ -788,7 +978,7 @@
       <img src="screenshots/09_barrier_swiss_cheese.png" alt="Swiss-Cheese Barrier Analysis">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 9:</strong> Swiss-Cheese Barrier Model demonstrating Barrier Breaches &amp; Latent Defects</span>
+      <span><strong>Figure 13:</strong> Swiss-Cheese Barrier Model demonstrating Barrier Breaches &amp; Latent Defects</span>
       <span class="chip chip-blue">Barrier Defense</span>
     </div>
   </div>
@@ -827,10 +1017,10 @@
   </table>
 </div>
 
-<!-- ==================== SECTION 10 ==================== -->
+<!-- ==================== SECTION 12 ==================== -->
 <div class="page">
   <div class="header-tag">Risk Quantification</div>
-  <h1>10. Failure Mode &amp; Effects Analysis (FMEA) &amp; RPN</h1>
+  <h1>12. Failure Mode &amp; Effects Analysis (FMEA) &amp; RPN</h1>
 
   <p>
     Failure Mode and Effects Analysis provides numerical risk scoring compliant with IEC 60812. Each identified failure mechanism is evaluated on a 1-to-10 scale across three independent dimensions to yield a <strong>Risk Priority Number (RPN)</strong>.
@@ -841,7 +1031,7 @@
       <img src="screenshots/10_fmea_risk.png" alt="FMEA Risk Ranking">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 10:</strong> FMEA Risk Grid with Severity, Occurrence, Detection &amp; RPN Thresholds</span>
+      <span><strong>Figure 14:</strong> FMEA Risk Grid with Severity, Occurrence, Detection &amp; RPN Thresholds</span>
       <span class="chip chip-teal">FMEA Risk</span>
     </div>
   </div>
@@ -888,10 +1078,10 @@
   </div>
 </div>
 
-<!-- ==================== SECTION 11 ==================== -->
+<!-- ==================== SECTION 13 ==================== -->
 <div class="page">
   <div class="header-tag">Action Governance</div>
-  <h1>11. CAPA Action Tracking &amp; Outlook Synchronization</h1>
+  <h1>13. CAPA Action Tracking &amp; Outlook Synchronization</h1>
 
   <p>
     An investigation is only as effective as the permanence of its corrective solutions. The CAPA Tracker enforces accountability by assigning owners, target completion dates, hierarchy of control classifications, and direct Microsoft Outlook calendar integration.
@@ -902,7 +1092,7 @@
       <img src="screenshots/11_capa_tracker.png" alt="CAPA Management and Action Plan">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 11:</strong> CAPA Action Tracker with Hierarchy of Controls, Owners &amp; Outlook .ICS Export</span>
+      <span><strong>Figure 15:</strong> CAPA Action Tracker with Hierarchy of Controls, Owners &amp; Outlook .ICS Export</span>
       <span class="chip chip-blue">CAPA Tracker</span>
     </div>
   </div>
@@ -921,10 +1111,10 @@
   </div>
 </div>
 
-<!-- ==================== SECTION 12 ==================== -->
+<!-- ==================== SECTION 14 ==================== -->
 <div class="page">
   <div class="header-tag">Auditing &amp; Sign-off</div>
-  <h1>12. Digital Governance &amp; Audit Trail</h1>
+  <h1>14. Digital Governance &amp; Audit Trail</h1>
 
   <p>
     To satisfy RWE quality policies and international regulatory scrutiny, investigations must undergo formal peer review prior to official closure. The Conclusion tab enforces a multi-tier electronic sign-off protocol coupled with a 6-point pre-closure checklist.
@@ -935,7 +1125,7 @@
       <img src="screenshots/12_governance_signoffs.png" alt="Digital Governance and Pre-Closure Audit Checklist">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 12:</strong> Digital Sign-off Blocks, Pre-Closure Checklist &amp; Immutable Audit Trail</span>
+      <span><strong>Figure 16:</strong> Digital Sign-off Blocks, Pre-Closure Checklist &amp; Immutable Audit Trail</span>
       <span class="chip chip-teal">Audit &amp; Sign-off</span>
     </div>
   </div>
@@ -984,10 +1174,10 @@
   </ol>
 </div>
 
-<!-- ==================== SECTION 13 ==================== -->
+<!-- ==================== SECTION 15 ==================== -->
 <div class="page">
   <div class="header-tag">Executive Reporting</div>
-  <h1>13. Reporting Suite &amp; Multi-Format Exports</h1>
+  <h1>15. Reporting Suite &amp; Multi-Format Exports</h1>
 
   <p>
     RWE-RCA provides four export options tailored for diverse stakeholder audiences—from executive board presentations to maintenance planning spreadsheets.
@@ -998,7 +1188,7 @@
       <img src="screenshots/14_export_reports.png" alt="Multi-Format Export Suite">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 13:</strong> Multi-Format Export Suite (PDF Dossier, Word DOCX, PowerPoint PPTX, Excel XLSX)</span>
+      <span><strong>Figure 17:</strong> Multi-Format Export Suite (PDF Dossier, Word DOCX, PowerPoint PPTX, Excel XLSX)</span>
       <span class="chip chip-blue">Export Engine</span>
     </div>
   </div>
@@ -1041,16 +1231,16 @@
       <img src="screenshots/13_method_guide_modal.png" alt="Method Selection Guide Modal">
     </div>
     <div class="figure-cap">
-      <span><strong>Figure 14:</strong> In-App Method Guidance Modal providing Decision Trees for Methodology Selection</span>
+      <span><strong>Figure 18:</strong> In-App Method Guidance Modal providing Decision Trees for Methodology Selection</span>
       <span class="chip chip-teal">Method Decision Guide</span>
     </div>
   </div>
 </div>
 
-<!-- ==================== SECTION 14 ==================== -->
+<!-- ==================== SECTION 16 ==================== -->
 <div class="page">
   <div class="header-tag">Field Reliability</div>
-  <h1>14. Field Offline Resilience &amp; Troubleshooting</h1>
+  <h1>16. Field Offline Resilience &amp; Troubleshooting</h1>
 
   <p>
     Working in offshore environments, wind turbine nacelles, or underground substations often means complete absence of cellular or Wi-Fi coverage. The RWE-RCA Platform is engineered to deliver 100% operational capability regardless of network status.
@@ -1110,7 +1300,7 @@
       Reliability &amp; Operational Excellence Working Group
     </div>
     <div style="text-align: right;">
-      Document Code: <strong>RWE-RCA-SOP-2026-V2.4</strong><br>
+      Document Code: <strong>RWE-RCA-SOP-2026-V2.5</strong><br>
       Published: November 2026 · Standard Operations Manual
     </div>
   </div>
